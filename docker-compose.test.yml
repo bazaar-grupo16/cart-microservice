@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: test_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ecommerce_test
+    ports:
+      - "5433:5432" # Use a different port to avoid conflict with main db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d ecommerce_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  test:
+    image: golang:alpine
+    container_name: backend_test
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=admin
+      - DATABASE_PASSWORD=secret
+      - DATABASE_NAME=ecommerce_test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: go test ./api/... -v
