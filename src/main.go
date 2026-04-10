@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ValentinMarturet/is2-rojas/api/config"
-	"github.com/ValentinMarturet/is2-rojas/api/controller"
-	"github.com/ValentinMarturet/is2-rojas/api/repository"
-	"github.com/ValentinMarturet/is2-rojas/api/router"
-	"github.com/ValentinMarturet/is2-rojas/api/service"
+	"github.com/ValentinMarturet/is2-rojas/src/config"
+	"github.com/ValentinMarturet/is2-rojas/src/controller"
+	"github.com/ValentinMarturet/is2-rojas/src/repository"
+	"github.com/ValentinMarturet/is2-rojas/src/router"
+	"github.com/ValentinMarturet/is2-rojas/src/service"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )

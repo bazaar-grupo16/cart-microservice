@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/ValentinMarturet/is2-rojas/api/models"
-	"github.com/ValentinMarturet/is2-rojas/api/service"
-	"github.com/ValentinMarturet/is2-rojas/api/utils"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
+	"github.com/ValentinMarturet/is2-rojas/src/service"
+	"github.com/ValentinMarturet/is2-rojas/src/utils"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

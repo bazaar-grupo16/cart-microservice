@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/ValentinMarturet/is2-rojas/api/models"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
 )
 
 func TestCreateProduct_ReturnsErrorWhenTitleIsMissing(t *testing.T) {

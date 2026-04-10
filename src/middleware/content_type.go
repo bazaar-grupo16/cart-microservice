@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ValentinMarturet/is2-rojas/api/utils"
+	"github.com/ValentinMarturet/is2-rojas/src/utils"
 	"github.com/gin-gonic/gin"
 )
 

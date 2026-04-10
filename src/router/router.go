@@ -1,8 +1,8 @@
 package router
 
 import (
-	"github.com/ValentinMarturet/is2-rojas/api/controller"
-	"github.com/ValentinMarturet/is2-rojas/api/middleware"
+	"github.com/ValentinMarturet/is2-rojas/src/controller"
+	"github.com/ValentinMarturet/is2-rojas/src/middleware"
 	"github.com/gin-gonic/gin"
 )
 

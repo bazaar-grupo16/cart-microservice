@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/ValentinMarturet/is2-rojas/api/models"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
 )
 
 // DBTX is an interface that abstracts both *sql.DB and *sql.Tx, allowing us to use the same methods for querying and executing SQL statements in both contexts.

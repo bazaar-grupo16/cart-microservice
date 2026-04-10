@@ -1,6 +1,6 @@
 package repository
 
-import "github.com/ValentinMarturet/is2-rojas/api/models"
+import "github.com/ValentinMarturet/is2-rojas/src/models"
 
 // CartRepository provides methods to interact with the cart_items table in the database
 type CartRepository struct {

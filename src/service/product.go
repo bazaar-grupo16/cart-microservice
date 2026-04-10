@@ -3,8 +3,8 @@ package service
 import (
 	"errors"
 
-	"github.com/ValentinMarturet/is2-rojas/api/models"
-	"github.com/ValentinMarturet/is2-rojas/api/repository"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
+	"github.com/ValentinMarturet/is2-rojas/src/repository"
 )
 
 // ProductService provides business logic for product operations

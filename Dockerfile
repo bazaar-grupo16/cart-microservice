@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./api/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./src/main.go
 
 FROM alpine:latest
 WORKDIR /app
@@ -17,7 +17,7 @@ WORKDIR /app
 RUN apk --no-cache add ca-certificates tzdata
 
 COPY --from=builder /app/main .
-COPY --from=builder /app/api/db/migrations ./db/migrations
+COPY --from=builder /app/src/db/migrations ./db/migrations
 
 ENV PORT=8080
 

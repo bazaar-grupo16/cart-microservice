@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"github.com/ValentinMarturet/is2-rojas/api/models"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
 	"github.com/gin-gonic/gin"
 )
 
