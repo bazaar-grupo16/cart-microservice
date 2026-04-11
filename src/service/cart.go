@@ -3,8 +3,8 @@ package service
 import (
 	"errors"
 
-	"github.com/ValentinMarturet/is2-rojas/src/models"
-	"github.com/ValentinMarturet/is2-rojas/src/repository"
+	"github.com/bazaar-grupo16/cart-microservice/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/repository"
 )
 
 // CartService provides business logic for shopping cart operations.

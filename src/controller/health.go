@@ -3,7 +3,7 @@ package controller
 import (
 	"net/http"
 
-	"github.com/ValentinMarturet/is2-rojas/src/config"
+	"github.com/bazaar-grupo16/cart-microservice/src/config"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

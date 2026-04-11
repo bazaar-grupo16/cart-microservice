@@ -9,12 +9,12 @@ services:
     ports:
       - "5433:5432" # Use a different port to avoid conflict with main db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d ecommerce_test"]
+      test: [ "CMD-SHELL", "pg_isready -U admin -d ecommerce_test" ]
       interval: 2s
       timeout: 5s
       retries: 10
 
-  test:
+  test-runner:
     image: golang:alpine
     container_name: backend_test
     working_dir: /app

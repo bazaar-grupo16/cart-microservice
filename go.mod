@@ -1,4 +1,4 @@
-module github.com/ValentinMarturet/is2-rojas
+module github.com/bazaar-grupo16/cart-microservice
 
 go 1.25.0
 

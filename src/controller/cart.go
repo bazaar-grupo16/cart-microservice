@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/ValentinMarturet/is2-rojas/src/models"
-	"github.com/ValentinMarturet/is2-rojas/src/service"
-	"github.com/ValentinMarturet/is2-rojas/src/utils"
+	"github.com/bazaar-grupo16/cart-microservice/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/service"
+	"github.com/bazaar-grupo16/cart-microservice/src/utils"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

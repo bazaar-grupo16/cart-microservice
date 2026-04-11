@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ValentinMarturet/is2-rojas/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/models"
 	"go.uber.org/zap"
 )
 
