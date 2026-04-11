@@ -16,7 +16,12 @@ import (
 func main() {
 	// Initialize structured logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() {
+		if err := logger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
+		}
+	}()
+
 	zap.ReplaceGlobals(logger)
 
 	// Load environment variables from .env file (fallback to system env)

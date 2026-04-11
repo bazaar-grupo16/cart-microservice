@@ -117,7 +117,11 @@ func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) int {
 // an empty items array and a totalPrice of 0.00.
 func TestGetEmptyCart(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodGet, "/cart/1", nil)
 	w := httptest.NewRecorder()
@@ -139,7 +143,11 @@ func TestGetEmptyCart(t *testing.T) {
 // TestGetCart verifies that added items appear in GET /cart/{userId}.
 func TestGetCart(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	userID := 1
 	helperAddItemToCart(r, t, userID)
@@ -174,7 +182,11 @@ func TestGetCart(t *testing.T) {
 // the snapshot price and title from the mock catalog.
 func TestAddItemToCart(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	userID := 1
 	body := `{"productId": 1}`
@@ -230,7 +242,11 @@ func TestAddItemToCart_ProductNotFound(t *testing.T) {
 	config.ConnectDatabase()
 	config.RunMigrations()
 	tx, _ := config.DB.Begin()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	notFoundMock := &MockCatalogClient{Err: service.ErrProductNotFound}
 	cartRepo := repository.NewCartRepository(tx)
@@ -264,7 +280,11 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 	config.ConnectDatabase()
 	config.RunMigrations()
 	tx, _ := config.DB.Begin()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	unavailableMock := &MockCatalogClient{Err: service.ErrCatalogUnavailable}
 	cartRepo := repository.NewCartRepository(tx)
@@ -289,7 +309,11 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 // TestClearCart verifies that DELETE /cart/{userId} empties the cart and is idempotent.
 func TestClearCart(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	userID := 1
 	helperAddItemToCart(r, t, userID)
@@ -312,7 +336,9 @@ func TestClearCart(t *testing.T) {
 			Items []interface{} `json:"items"`
 		} `json:"data"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
 	if len(cartResp.Data.Items) != 0 {
 		t.Errorf("expected empty cart after clear, got %d items", len(cartResp.Data.Items))
 	}
@@ -329,7 +355,11 @@ func TestClearCart(t *testing.T) {
 // TestRemoveItemFromCart verifies DELETE /cart/{userId}/items/{cartItemId}.
 func TestRemoveItemFromCart(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	userID := 1
 	// Add two items
@@ -370,7 +400,9 @@ func TestRemoveItemFromCart(t *testing.T) {
 	getReq2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, getReq2)
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
 
 	if len(cartResp.Data.Items) != 1 {
 		t.Errorf("expected 1 item remaining, got %d", len(cartResp.Data.Items))
@@ -385,7 +417,11 @@ func TestRemoveItemFromCart(t *testing.T) {
 // TestRemoveItemFromCart_WrongUser verifies that deleting another user's item returns 404.
 func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	// Add item for user 1
 	cartItemID := helperAddItemToCart(r, t, 1)
@@ -404,7 +440,11 @@ func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 // TestTotalPriceCalculation verifies that totalPrice is the sum of all item unitPrices.
 func TestTotalPriceCalculation(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	userID := 1
 	// Add 3 items — each mocked at 9.99
@@ -431,7 +471,11 @@ func TestTotalPriceCalculation(t *testing.T) {
 // 400 with a problem+json body.
 func TestContentTypeMiddleware(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
 		bytes.NewBufferString(`{"productId":1}`))
@@ -469,7 +513,11 @@ func TestContentTypeMiddleware(t *testing.T) {
 // TestLivezAlwaysOK verifies /livez always returns 200 with {"status":"ok"}.
 func TestLivezAlwaysOK(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
@@ -486,7 +534,11 @@ func TestLivezAlwaysOK(t *testing.T) {
 // TestReadyzWithDB verifies /readyz returns 200 when the DB is connected.
 func TestReadyzWithDB(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
@@ -504,7 +556,11 @@ func TestReadyzWithDB(t *testing.T) {
 // TestInvalidUserID verifies that non-integer or zero userId returns 400.
 func TestInvalidUserID(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	cases := []string{"/cart/abc", "/cart/0", "/cart/-1"}
 	for _, path := range cases {
@@ -520,7 +576,11 @@ func TestInvalidUserID(t *testing.T) {
 // TestAddItem_MissingProductId verifies that omitting productId returns 400.
 func TestAddItem_MissingProductId(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
 		bytes.NewBufferString(`{}`))
@@ -536,7 +596,11 @@ func TestAddItem_MissingProductId(t *testing.T) {
 // TestAddItem_InvalidProductIdType verifies that sending a boolean for productId returns 400.
 func TestAddItem_InvalidProductIdType(t *testing.T) {
 	r, tx := setupRouter()
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
 		bytes.NewBufferString(`{"productId": true}`))
