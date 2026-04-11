@@ -1,4 +1,3 @@
--- 000001_init_schema.down.sql
+-- 000001_create_cart_items.down.sql
 
-DROP TABLE cart_items;
-DROP TABLE products;
+DROP TABLE IF EXISTS cart_items;

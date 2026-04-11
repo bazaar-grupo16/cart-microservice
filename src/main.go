@@ -14,29 +14,31 @@ import (
 )
 
 func main() {
-	// Initialize global Zap logger
+	// Initialize structured logger
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 	zap.ReplaceGlobals(logger)
 
-	// Load environment variables
-	err := godotenv.Load("../.env")
-	if err != nil {
-		zap.S().Info("Error loading .env file. Using system environment variables.")
+	// Load environment variables from .env file (fallback to system env)
+	if err := godotenv.Load("../.env"); err != nil {
+		zap.S().Info("No .env file found; using system environment variables")
 	}
 
+	// Connect to PostgreSQL and run pending migrations
 	config.ConnectDatabase()
 	config.RunMigrations()
 
-	productRepo := repository.NewProductRepository(config.DB)
-	productService := service.NewProductService(productRepo)
-	productController := controller.NewProductController(productService)
-
+	// Dependency injection — cart domain only
 	cartRepo := repository.NewCartRepository(config.DB)
-	cartService := service.NewCartService(cartRepo, productRepo)
+	catalogClient := service.NewCatalogClient(os.Getenv("CATALOG_SERVICE_URL"))
+	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)
 
-	r := router.SetupRouter(productController, cartController)
+	r := router.SetupRouter(cartController)
 
-	_ = r.Run(fmt.Sprintf(":%s", os.Getenv("PORT")))
+	addr := fmt.Sprintf(":%s", os.Getenv("PORT"))
+	zap.S().Infow("Starting cart microservice", "addr", addr)
+	if err := r.Run(addr); err != nil {
+		zap.S().Fatalw("Server failed to start", "error", err)
+	}
 }

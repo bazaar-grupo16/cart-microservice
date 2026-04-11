@@ -1,0 +1,32 @@
+package controller
+
+import (
+	"net/http"
+
+	"github.com/ValentinMarturet/is2-rojas/src/config"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+)
+
+// LivezHandler reports that the process is alive.
+// It performs only in-process checks (no DB, no external services),
+// so Kubernetes can distinguish a crashed process from a temporarily unavailable one.
+func LivezHandler(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// ReadyzHandler reports that the service is ready to handle requests.
+// It verifies connectivity to PostgreSQL via a lightweight Ping.
+// Returns 503 if the database is unreachable so Kubernetes stops routing traffic
+// to this pod until the dependency recovers.
+func ReadyzHandler(ctx *gin.Context) {
+	if err := config.DB.Ping(); err != nil {
+		zap.S().Errorw("Readiness check failed: database unreachable", "error", err)
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "unavailable",
+			"detail": "database connection failed",
+		})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
+}

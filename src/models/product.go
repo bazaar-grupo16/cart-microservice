@@ -1,12 +1,11 @@
 package models
 
-// Product represents an item that can be bought or sold in the marketplace
+// Product represents the data fetched from the Catalog microservice
+// when resolving a price snapshot for a new CartItem.
+// This struct is used only for deserialization — the cart service does not
+// own or persist products; it reads them transiently to capture snapshots.
 type Product struct {
-	ID          int    `json:"id"`
-	SellerID    int    `json:"sellerId"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Price       Price  `json:"price"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	Price Price  `json:"price"`
 }

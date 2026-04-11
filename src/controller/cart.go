@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -32,14 +33,14 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
- 
+
 	cart, err := c.CartService.GetCartByUserID(userID)
 	if err != nil {
 		zap.S().Errorw("Failed to retrieve cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not retrieve the cart at this time", ctx.Request.URL.String())
 		return
 	}
- 
+
 	ctx.JSON(http.StatusOK, gin.H{"data": cart})
 }
 
@@ -52,18 +53,20 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
- 
+
 	err = c.CartService.ClearCart(userID)
 	if err != nil {
 		zap.S().Errorw("Failed to clear cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not clear the cart at this time", ctx.Request.URL.String())
 		return
 	}
- 
+
 	ctx.Status(http.StatusNoContent)
 }
 
 // AddToCart handles POST /cart/:user_id/items
+// It accepts only a productId; the title and unitPrice are fetched from the Catalog
+// service and stored as an immutable snapshot.
 func (c *CartController) AddToCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
 	userID, err := strconv.Atoi(strId)
@@ -72,11 +75,11 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
- 
+
 	var req models.AddCartRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		zap.S().Errorw("Invalid request payload for adding to cart", "error", err, "userID", userID)
-		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid request payload", "The provided item information is malformed or invalid", ctx.Request.URL.String())
+		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Request Payload", "The provided item information is malformed or invalid", ctx.Request.URL.String())
 		return
 	}
 
@@ -85,13 +88,22 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 	}
 
 	err = c.CartService.AddToCart(userID, &item)
-	if err != nil {
-		zap.S().Errorw("Failed to add item to cart", "userID", userID, "productID", item.ProductID, "error", err)
-		utils.ProblemJSON(ctx, http.StatusNotFound, "Operation Failed", "Could not add the item to the cart. Ensure the product exists.", ctx.Request.URL.String())
-		return
+	switch {
+	case errors.Is(err, service.ErrProductNotFound):
+		zap.S().Debugw("Product not found in catalog", "userID", userID, "productID", req.ProductID)
+		utils.ProblemJSON(ctx, http.StatusNotFound, "Product Not Found",
+			"The requested product does not exist in the catalog", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrCatalogUnavailable):
+		zap.S().Warnw("Catalog service unavailable when adding to cart", "userID", userID, "productID", req.ProductID)
+		utils.ProblemJSON(ctx, http.StatusServiceUnavailable, "Catalog Unavailable",
+			"The catalog service is temporarily unavailable. Please try again later.", ctx.Request.URL.String())
+	case err != nil:
+		zap.S().Errorw("Unexpected error adding item to cart", "userID", userID, "productID", req.ProductID, "error", err)
+		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error",
+			"Could not add the item to the cart", ctx.Request.URL.String())
+	default:
+		ctx.JSON(http.StatusCreated, gin.H{"data": item})
 	}
-
-	ctx.JSON(http.StatusCreated, gin.H{"data": item})
 }
 
 // RemoveFromCart handles DELETE /cart/:user_id/items/:cart_item_id
@@ -103,7 +115,7 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
- 
+
 	strItemId := ctx.Param("cart_item_id")
 	cartItemID, err := strconv.Atoi(strItemId)
 	if err != nil || cartItemID <= 0 {
@@ -111,13 +123,14 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Item ID", "The provided item identification format is invalid", ctx.Request.URL.String())
 		return
 	}
- 
+
 	err = c.CartService.RemoveFromCart(userID, cartItemID)
 	if err != nil {
 		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "cartItemID", cartItemID, "error", err)
-		utils.ProblemJSON(ctx, http.StatusNotFound, "Removal Failed", "Could not find or remove the requested item from the cart", ctx.Request.URL.String())
+		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
+			"Could not find the requested item in this user's cart", ctx.Request.URL.String())
 		return
 	}
- 
+
 	ctx.Status(http.StatusNoContent)
 }

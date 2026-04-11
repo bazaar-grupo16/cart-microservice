@@ -12,6 +12,7 @@ import (
 
 	"github.com/ValentinMarturet/is2-rojas/src/config"
 	"github.com/ValentinMarturet/is2-rojas/src/controller"
+	"github.com/ValentinMarturet/is2-rojas/src/models"
 	"github.com/ValentinMarturet/is2-rojas/src/repository"
 	"github.com/ValentinMarturet/is2-rojas/src/router"
 	"github.com/ValentinMarturet/is2-rojas/src/service"
@@ -20,299 +21,175 @@ import (
 	"go.uber.org/zap"
 )
 
+// ---------------------------------------------------------------------------
+// MockCatalogClient — implements service.CatalogClientI for tests.
+// It returns a fixed product without making any HTTP calls, allowing tests to
+// run without a real Catalog service.
+// ---------------------------------------------------------------------------
+
+type MockCatalogClient struct {
+	Product *models.Product
+	Err     error
+}
+
+// GetProduct satisfies CatalogClientI.
+func (m *MockCatalogClient) GetProduct(_ int) (*models.Product, error) {
+	return m.Product, m.Err
+}
+
+// defaultMockCatalog is a convenience mock that always returns a valid product.
+func defaultMockCatalog() *MockCatalogClient {
+	return &MockCatalogClient{
+		Product: &models.Product{
+			ID:    1,
+			Title: "Test Product",
+			Price: models.Price("9.99"),
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+// setupRouter creates a Gin router wired against a real test-DB transaction
+// and a MockCatalogClient. The transaction is rolled back in each test so
+// tests are isolated and don't leave data behind.
 func setupRouter() (*gin.Engine, *sql.Tx) {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 
-	err := godotenv.Load("../.env", ".env")
-	if err != nil {
-		zap.S().Info("Error loading .env file. Using system environment variables.")
+	if err := godotenv.Load("../.env", ".env"); err != nil {
+		zap.S().Info("No .env file found; using system environment variables")
 	}
 
-	// Forzar el uso de la base de datos de pruebas para no ensuciar la de desarrollo
+	// Override DB name to the dedicated test database.
 	os.Setenv("DATABASE_NAME", "ecommerce_test")
 
 	config.ConnectDatabase()
 	config.RunMigrations()
+
 	tx, err := config.DB.Begin()
 	if err != nil {
 		zap.S().Fatalf("Failed to begin transaction: %v", err)
 	}
 
-	productRepo := repository.NewProductRepository(tx)
-	productService := service.NewProductService(productRepo)
-	productController := controller.NewProductController(productService)
-
 	cartRepo := repository.NewCartRepository(tx)
-	cartService := service.NewCartService(cartRepo, productRepo)
+	cartService := service.NewCartService(cartRepo, defaultMockCatalog())
 	cartController := controller.NewCartController(cartService)
 
-	return router.SetupRouter(productController, cartController), tx
+	return router.SetupRouter(cartController), tx
 }
 
-func TestCreateProduct(t *testing.T) {
-	r, tx := setupRouter()
-	defer tx.Rollback()
-	data := struct {
-		SellerID    int     `json:"sellerId"`
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		SellerID:    1,
-		Title:       "Test Product",
-		Description: "This is a test product",
-		Price:       9.99,
-	}
-	jsonValue, _ := json.Marshal(data)
+// helperAddItemToCart adds a cart item using the mock catalog (productId=1).
+// It uses Fatalf so the test fails immediately if the setup call fails.
+func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) int {
+	t.Helper()
 
-	req := httptest.NewRequest("POST", "/products", bytes.NewBuffer(jsonValue))
+	body := `{"productId": 1}`
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/cart/%d/items", userID),
+		bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, w.Code)
+		t.Fatalf("helperAddItemToCart: expected 201, got %d — body: %s", w.Code, w.Body.String())
 	}
-	// get all products to check if the new product is there
-	getReq := httptest.NewRequest("GET", "/products", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+	var resp struct {
+		Data struct {
+			ID int `json:"id"`
+		} `json:"data"`
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("Test Product")) {
-		t.Errorf("Expected response body to contain 'Test Product', got %s", w.Body.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("helperAddItemToCart: failed to parse response: %v", err)
 	}
+	return resp.Data.ID
 }
 
-func TestGetAllProducts(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Cart tests
+// ---------------------------------------------------------------------------
+
+// TestGetEmptyCart verifies that GET /cart/{userId} for a new user returns
+// an empty items array and a totalPrice of 0.00.
+func TestGetEmptyCart(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	req := httptest.NewRequest("GET", "/products", nil)
+	req := httptest.NewRequest(http.MethodGet, "/cart/1", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"items":[]`)) {
+		t.Errorf(`expected "items":[], got: %s`, body)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":0.00`)) {
+		t.Errorf(`expected "totalPrice":0.00, got: %s`, body)
 	}
 }
 
-func TestIntegrationCRUD(t *testing.T) {
+// TestGetCart verifies that added items appear in GET /cart/{userId}.
+func TestGetCart(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	data := struct {
-		SellerID    int     `json:"sellerId"`
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		SellerID:    1,
-		Title:       "Test Product",
-		Description: "This is a test product",
-		Price:       9.99,
-	}
-	jsonValue, _ := json.Marshal(data)
+	userID := 1
+	helperAddItemToCart(r, t, userID)
 
-	postReq := httptest.NewRequest("POST", "/products", bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-	var response struct {
-		Data struct {
-			ID int `json:"id"`
-		} `json:"data"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &response)
-	productID := response.Data.ID
-
-	getReq := httptest.NewRequest("GET", "/products", nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
+	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		t.Errorf("expected 200, got %d", w.Code)
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("Test Product")) {
-		t.Errorf("Expected response body to contain 'Test Product', got %s", w.Body.String())
+		t.Errorf("expected cart to contain 'Test Product', got: %s", w.Body.String())
 	}
 
-	getReq = httptest.NewRequest("GET", fmt.Sprintf("/products/%d", productID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				ID int `json:"id"`
+			} `json:"items"`
+		} `json:"data"`
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("Test Product")) {
-		t.Errorf("Expected response body to contain 'Test Product', got %s", w.Body.String())
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
 	}
-
-	updateData := struct {
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		Title:       "Updated Product",
-		Description: "This is an updated test product",
-		Price:       19.99,
-	}
-	jsonValue, _ = json.Marshal(updateData)
-
-	putReq := httptest.NewRequest("PUT", fmt.Sprintf("/products/%d", productID), bytes.NewBuffer(jsonValue))
-	putReq.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, putReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
-	deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/products/%d", productID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, deleteReq)
-	if w.Code != http.StatusNoContent {
-		t.Errorf("Expected status code %d, got %d", http.StatusNoContent, w.Code)
+	if len(cartResp.Data.Items) != 1 {
+		t.Errorf("expected 1 cart item, got %d", len(cartResp.Data.Items))
 	}
 }
 
-func TestUpdateProduct(t *testing.T) {
+// TestAddItemToCart verifies POST /cart/{userId}/items creates a CartItem with
+// the snapshot price and title from the mock catalog.
+func TestAddItemToCart(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	data := struct {
-		SellerID    int     `json:"sellerId"`
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		SellerID:    1,
-		Title:       "Test Product",
-		Description: "This is a test product",
-		Price:       9.99,
-	}
-	jsonValue, _ := json.Marshal(data)
-
-	postReq := httptest.NewRequest("POST", "/products", bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
+	userID := 1
+	body := `{"productId": 1}`
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/cart/%d/items", userID),
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
+	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-	var response struct {
-		Data struct {
-			ID int `json:"id"`
-		} `json:"data"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &response)
-	productID := response.Data.ID
-
-	updateData := struct {
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		Title:       "Updated Product",
-		Description: "This is an updated test product",
-		Price:       19.99,
-	}
-	jsonValue, _ = json.Marshal(updateData)
-	putReq := httptest.NewRequest("PUT", fmt.Sprintf("/products/%d", productID), bytes.NewBuffer(jsonValue))
-	putReq.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, putReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-	// cast product to struct and check if it matches to the updated values
-	var updateResponse struct {
-		Data struct {
-			ID          int     `json:"id"`
-			SellerID    int     `json:"sellerId"`
-			Title       string  `json:"title"`
-			Description string  `json:"description"`
-			Price       float64 `json:"price"`
-			CreatedAt   string  `json:"created_at"`
-			UpdatedAt   string  `json:"updated_at"`
-		} `json:"data"`
-	}
-	if json.NewDecoder(bytes.NewBuffer(w.Body.Bytes())).Decode(&updateResponse) != nil {
-
-	}
-	updatedProduct := updateResponse.Data
-	if updatedProduct.Title != updateData.Title {
-		t.Errorf("Expected title %s, got %s", updateData.Title, updatedProduct.Title)
-	}
-	if updatedProduct.Description != updateData.Description {
-		t.Errorf("Expected description %s, got %s", updateData.Description, updatedProduct.Description)
-	}
-	if updatedProduct.Price != updateData.Price {
-		t.Errorf("Expected price %.2f, got %.2f", updateData.Price, updatedProduct.Price)
+		t.Fatalf("expected 201, got %d — body: %s", w.Code, w.Body.String())
 	}
 
-}
-
-func TestAddProductToCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer tx.Rollback()
-
-	productData := struct {
-		SellerID    int     `json:"sellerId"`
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		SellerID:    1,
-		Title:       "Test Product",
-		Description: "This is a test product",
-		Price:       9.99,
-	}
-	jsonValue, _ := json.Marshal(productData)
-
-	postReq := httptest.NewRequest("POST", "/products", bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-	var response struct {
-		Data struct {
-			ID int `json:"id"`
-		} `json:"data"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &response)
-	productID := response.Data.ID
-
-	cartItemData := struct {
-		ProductID int `json:"productId"`
-	}{
-		ProductID: productID,
-	}
-	jsonValue, _ = json.Marshal(cartItemData)
-
-	testUserID := 1
-
-	postReq = httptest.NewRequest("POST", fmt.Sprintf("/cart/%d/items", testUserID), bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-	var cartItemResp struct {
+	var resp struct {
 		Data struct {
 			ID        int     `json:"id"`
 			ProductID int     `json:"productId"`
@@ -321,467 +198,353 @@ func TestAddProductToCart(t *testing.T) {
 			AddedAt   string  `json:"addedAt"`
 		} `json:"data"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &cartItemResp)
-	cartItem := cartItemResp.Data
-
-	if cartItem.ProductID != productID {
-		t.Errorf("Expected product ID %d in cart item, got %d", productID, cartItem.ProductID)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
 	}
 
-	// test if cart contains the item
-	getReq := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+	item := resp.Data
+	if item.ProductID != 1 {
+		t.Errorf("expected productId 1, got %d", item.ProductID)
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("Test Product")) {
-		t.Errorf("Expected response body to contain 'Test Product', got %s", w.Body.String())
+	if item.Title != "Test Product" {
+		t.Errorf("expected title 'Test Product', got '%s'", item.Title)
 	}
-	// check cart lenght is 1
-	var cartResp struct {
-		Data struct {
-			UserID int `json:"userId"`
-			Items  []struct {
-				ID        int     `json:"id"`
-				ProductID int     `json:"productId"`
-				Title     string  `json:"title"`
-				UnitPrice float64 `json:"unitPrice"`
-				AddedAt   string  `json:"addedAt"`
-			} `json:"items"`
-			TotalPrice float64 `json:"totalPrice"`
-		} `json:"data"`
+	if item.UnitPrice != 9.99 {
+		t.Errorf("expected unitPrice 9.99, got %v", item.UnitPrice)
 	}
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart := cartResp.Data
-
-	if len(cart.Items) != 1 {
-		t.Errorf("Expected cart to have 1 item, got %d items", len(cart.Items))
+	if item.AddedAt == "" {
+		t.Error("expected addedAt to be populated")
 	}
 }
 
-func TestGetCart(t *testing.T) {
-	r, tx := setupRouter()
+// TestAddItemToCart_ProductNotFound verifies that a mock returning ErrProductNotFound
+// results in a 404 problem+json response.
+func TestAddItemToCart_ProductNotFound(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+
+	if err := godotenv.Load("../.env", ".env"); err != nil {
+		zap.S().Info("No .env file found")
+	}
+	os.Setenv("DATABASE_NAME", "ecommerce_test")
+	config.ConnectDatabase()
+	config.RunMigrations()
+	tx, _ := config.DB.Begin()
 	defer tx.Rollback()
 
-	testUserID := 1
+	notFoundMock := &MockCatalogClient{Err: service.ErrProductNotFound}
+	cartRepo := repository.NewCartRepository(tx)
+	cartService := service.NewCartService(cartRepo, notFoundMock)
+	cartController := controller.NewCartController(cartService)
+	r := router.SetupRouter(cartController)
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+		bytes.NewBufferString(`{"productId": 9999}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d — body: %s", w.Code, w.Body.String())
 	}
-	// check cart is empty
-	var cartResp struct {
-		Data struct {
-			UserID int `json:"userId"`
-			Items  []struct {
-				ID        int     `json:"id"`
-				ProductID int     `json:"productId"`
-				Title     string  `json:"title"`
-				UnitPrice float64 `json:"unitPrice"`
-				AddedAt   string  `json:"addedAt"`
-			} `json:"items"`
-			TotalPrice float64 `json:"totalPrice"`
-		} `json:"data"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected Content-Type application/problem+json, got %s", ct)
 	}
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart := cartResp.Data
-
-	if len(cart.Items) != 0 {
-		t.Errorf("Expected cart to be empty, got %d items", len(cart.Items))
-	}
-
-	HelperAddProductToCart(r, testUserID)
-
-	req = httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("Test Product")) {
-		t.Errorf("Expected response body to contain 'Test Product', got %s", w.Body.String())
-	}
-	// check cart length is 1
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart = cartResp.Data
-
-	if len(cart.Items) != 1 {
-		t.Errorf("Expected cart to have 1 item, got %d items", len(cart.Items))
-	}
-
 }
 
+// TestAddItemToCart_CatalogUnavailable verifies that ErrCatalogUnavailable maps to 503.
+func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+
+	if err := godotenv.Load("../.env", ".env"); err != nil {
+		zap.S().Info("No .env file found")
+	}
+	os.Setenv("DATABASE_NAME", "ecommerce_test")
+	config.ConnectDatabase()
+	config.RunMigrations()
+	tx, _ := config.DB.Begin()
+	defer tx.Rollback()
+
+	unavailableMock := &MockCatalogClient{Err: service.ErrCatalogUnavailable}
+	cartRepo := repository.NewCartRepository(tx)
+	cartService := service.NewCartService(cartRepo, unavailableMock)
+	cartController := controller.NewCartController(cartService)
+	r := router.SetupRouter(cartController)
+
+	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+		bytes.NewBufferString(`{"productId": 1}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d — body: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected Content-Type application/problem+json, got %s", ct)
+	}
+}
+
+// TestClearCart verifies that DELETE /cart/{userId} empties the cart and is idempotent.
 func TestClearCart(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	testUserID := 1
-	// add a product to the cart first
+	userID := 1
+	helperAddItemToCart(r, t, userID)
 
-	HelperAddProductToCart(r, testUserID)
-
-	req := httptest.NewRequest("DELETE", fmt.Sprintf("/cart/%d", testUserID), nil)
+	// First clear
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", userID), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-
 	if w.Code != http.StatusNoContent {
-		t.Errorf("Expected status code %d, got %d", http.StatusNoContent, w.Code)
+		t.Errorf("expected 204, got %d", w.Code)
 	}
 
-	// check cart is empty
-	getReq := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	// Verify cart is empty
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, getReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
 	var cartResp struct {
 		Data struct {
-			UserID int `json:"userId"`
-			Items  []struct {
-				ID        int     `json:"id"`
-				ProductID int     `json:"productId"`
-				Title     string  `json:"title"`
-				UnitPrice float64 `json:"unitPrice"`
-				AddedAt   string  `json:"addedAt"`
-			} `json:"items"`
-			TotalPrice float64 `json:"totalPrice"`
+			Items []interface{} `json:"items"`
 		} `json:"data"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart := cartResp.Data
+	if len(cartResp.Data.Items) != 0 {
+		t.Errorf("expected empty cart after clear, got %d items", len(cartResp.Data.Items))
+	}
 
-	if len(cart.Items) != 0 {
-		t.Errorf("Expected cart to be empty, got %d items", len(cart.Items))
+	// Second clear on empty cart must still return 204 (idempotent)
+	req2 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", userID), nil)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusNoContent {
+		t.Errorf("expected idempotent 204 on empty cart, got %d", w2.Code)
 	}
 }
 
-func TestRemoveFromCart(t *testing.T) {
+// TestRemoveItemFromCart verifies DELETE /cart/{userId}/items/{cartItemId}.
+func TestRemoveItemFromCart(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	testUserID := 1
-	// add a product to the cart first
-	HelperAddProductToCart(r, testUserID)
+	userID := 1
+	// Add two items
+	helperAddItemToCart(r, t, userID)
+	helperAddItemToCart(r, t, userID)
 
-	// add second product to the cart
-	HelperAddProductToCart(r, testUserID)
-
-	// get cart to find cart item ID
-	getReq := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	// Get current cart to find a cartItemId
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, getReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
 	var cartResp struct {
 		Data struct {
-			UserID int `json:"userId"`
-			Items  []struct {
-				ID        int     `json:"id"`
-				ProductID int     `json:"productId"`
-				Title     string  `json:"title"`
-				UnitPrice float64 `json:"unitPrice"`
-				AddedAt   string  `json:"addedAt"`
+			Items []struct {
+				ID int `json:"id"`
 			} `json:"items"`
-			TotalPrice float64 `json:"totalPrice"`
 		} `json:"data"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart := cartResp.Data
-
-	if len(cart.Items) == 0 {
-		t.Fatalf("Expected cart to have items, got 0")
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart: %v", err)
+	}
+	if len(cartResp.Data.Items) < 2 {
+		t.Fatalf("expected at least 2 items, got %d", len(cartResp.Data.Items))
 	}
 
-	cartItemID := cart.Items[0].ID
+	cartItemID := cartResp.Data.Items[0].ID
 
-	deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/cart/%d/items/%d", testUserID, cartItemID), nil)
+	// Remove first item
+	delReq := httptest.NewRequest(http.MethodDelete,
+		fmt.Sprintf("/cart/%d/items/%d", userID, cartItemID), nil)
 	w = httptest.NewRecorder()
-	r.ServeHTTP(w, deleteReq)
-
+	r.ServeHTTP(w, delReq)
 	if w.Code != http.StatusNoContent {
-		t.Errorf("Expected status code %d, got %d", http.StatusNoContent, w.Code)
+		t.Errorf("expected 204, got %d", w.Code)
 	}
 
-	// check cart item is removed
-	getReq = httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	// Verify only 1 item remains and the deleted one is gone
+	getReq2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
+	r.ServeHTTP(w, getReq2)
 	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart = cartResp.Data
 
-	for _, item := range cart.Items {
+	if len(cartResp.Data.Items) != 1 {
+		t.Errorf("expected 1 item remaining, got %d", len(cartResp.Data.Items))
+	}
+	for _, item := range cartResp.Data.Items {
 		if item.ID == cartItemID {
-			t.Errorf("Expected cart item ID %d to be removed, but it is still in the cart", cartItemID)
+			t.Errorf("item %d should have been deleted", cartItemID)
 		}
 	}
-	if len(cart.Items) != 1 {
-		t.Errorf("Expected cart to have 1 item after removal, got %d", len(cart.Items))
-	}
 }
 
-func TestDeletingProductRemovesItFromCarts(t *testing.T) {
+// TestRemoveItemFromCart_WrongUser verifies that deleting another user's item returns 404.
+func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	testUserID := 1
-	// add a product to the cart first
-	HelperAddProductToCart(r, testUserID)
+	// Add item for user 1
+	cartItemID := helperAddItemToCart(r, t, 1)
 
-	// get cart to find product ID
-	getReq := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	// Try to delete it as user 2
+	delReq := httptest.NewRequest(http.MethodDelete,
+		fmt.Sprintf("/cart/%d/items/%d", 2, cartItemID), nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
+	r.ServeHTTP(w, delReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
-	var cartResp struct {
-		Data struct {
-			UserID int `json:"userId"`
-			Items  []struct {
-				ID        int     `json:"id"`
-				ProductID int     `json:"productId"`
-				Title     string  `json:"title"`
-				UnitPrice float64 `json:"unitPrice"`
-				AddedAt   string  `json:"addedAt"`
-			} `json:"items"`
-			TotalPrice float64 `json:"totalPrice"`
-		} `json:"data"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart := cartResp.Data
-
-	if len(cart.Items) == 0 {
-		t.Fatalf("Expected cart to have items, got 0")
-	}
-
-	productID := cart.Items[0].ProductID
-
-	deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/products/%d", productID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, deleteReq)
-
-	if w.Code != http.StatusNoContent {
-		t.Errorf("Expected status code %d, got %d", http.StatusNoContent, w.Code)
-	}
-
-	// check cart is empty
-	getReq = httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
-	json.Unmarshal(w.Body.Bytes(), &cartResp)
-	cart = cartResp.Data
-
-	if len(cart.Items) != 0 {
-		t.Errorf("Expected cart to be empty after product deletion, got %d items", len(cart.Items))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when deleting another user's item, got %d", w.Code)
 	}
 }
 
-func TestGetEmptyCartFormat(t *testing.T) {
+// TestTotalPriceCalculation verifies that totalPrice is the sum of all item unitPrices.
+func TestTotalPriceCalculation(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	testUserID := 1
+	userID := 1
+	// Add 3 items — each mocked at 9.99
+	helperAddItemToCart(r, t, userID)
+	helperAddItemToCart(r, t, userID)
+	helperAddItemToCart(r, t, userID)
 
-	req := httptest.NewRequest("GET", fmt.Sprintf("/cart/%d", testUserID), nil)
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	r.ServeHTTP(w, getReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-
-	// Verify the exact JSON format
-	// Expected: {"data":{"userId":1,"items":[],"totalPrice":0.00}}
-	bodyString := w.Body.String()
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"items":[]`)) {
-		t.Errorf("Expected 'items' to be [], got %s", bodyString)
-	}
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":0.00`)) {
-		t.Errorf("Expected 'totalPrice' to be 0.00, got %s", bodyString)
+	body := w.Body.String()
+	// 3 × 9.99 = 29.97
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":29.97`)) {
+		t.Errorf("expected totalPrice 29.97, got: %s", body)
 	}
 }
 
-func HelperAddProductToCart(r *gin.Engine, userID int) {
-	productData := struct {
-		SellerID    int     `json:"sellerId"`
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Price       float64 `json:"price"`
-	}{
-		SellerID:    1,
-		Title:       "Test Product",
-		Description: "This is a test product",
-		Price:       9.99,
-	}
-	jsonValue, _ := json.Marshal(productData)
+// ---------------------------------------------------------------------------
+// Middleware tests
+// ---------------------------------------------------------------------------
 
-	postReq := httptest.NewRequest("POST", "/products", bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
-
-	if w.Code != http.StatusCreated {
-		zap.S().Fatalf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-	var response struct {
-		Data struct {
-			ID int `json:"id"`
-		} `json:"data"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &response)
-	productID := response.Data.ID
-
-	cartItemData := struct {
-		ProductID int `json:"productId"`
-	}{
-		ProductID: productID,
-	}
-	jsonValue, _ = json.Marshal(cartItemData)
-
-	postReq = httptest.NewRequest("POST", fmt.Sprintf("/cart/%d/items", userID), bytes.NewBuffer(jsonValue))
-	postReq.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, postReq)
-
-	if w.Code != http.StatusCreated {
-		zap.S().Fatalf("Expected status code %d, got %d", http.StatusCreated, w.Code)
-	}
-}
-
+// TestContentTypeMiddleware verifies that POST without application/json returns
+// 400 with a problem+json body.
 func TestContentTypeMiddleware(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	// Sending a POST without Content-Type: application/json should fail with 400
-	req := httptest.NewRequest("POST", "/products", bytes.NewBuffer([]byte(`{"test":"test"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+		bytes.NewBufferString(`{"productId":1}`))
 	req.Header.Set("Content-Type", "text/plain")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, w.Code)
+		t.Errorf("expected 400, got %d", w.Code)
 	}
-
-	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/problem+json" {
-		t.Errorf("Expected Content-Type application/problem+json, got %s", contentType)
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected application/problem+json, got %s", ct)
 	}
 
 	var response struct {
-		Type     string `json:"type"`
-		Title    string `json:"title"`
-		Status   int    `json:"status"`
-		Detail   string `json:"detail"`
-		Instance string `json:"instance"`
+		Type   string `json:"type"`
+		Title  string `json:"title"`
+		Status int    `json:"status"`
 	}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal problem response: %v", err)
 	}
-
 	if response.Title != "Invalid Content-Type" {
-		t.Errorf("Expected title 'Invalid Content-Type', got %s", response.Title)
+		t.Errorf("expected title 'Invalid Content-Type', got '%s'", response.Title)
 	}
 	if response.Type != "about:blank" {
-		t.Errorf("Expected type 'about:blank', got %s", response.Type)
+		t.Errorf("expected type 'about:blank', got '%s'", response.Type)
 	}
 }
 
-func TestUpdateProductCreatedAt(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Health probe tests
+// ---------------------------------------------------------------------------
+
+// TestLivezAlwaysOK verifies /livez always returns 200 with {"status":"ok"}.
+func TestLivezAlwaysOK(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	// 1. Create a product
-	postBody := `{"sellerId": 1, "title": "Test D", "description": "D", "price": 10.00}`
-	req := httptest.NewRequest("POST", "/products", bytes.NewBuffer([]byte(postBody)))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	var res struct {
-		Data struct {
-			ID        int    `json:"id"`
-			CreatedAt string `json:"createdAt"`
-		} `json:"data"`
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
 	}
-	json.Unmarshal(w.Body.Bytes(), &res)
-
-	id := res.Data.ID
-	originalCreated := res.Data.CreatedAt
-
-	// 2. Update the product
-	putBody := `{"title": "Test D2", "description": "D2", "price": 20.00}`
-	reqPut := httptest.NewRequest("PUT", fmt.Sprintf("/products/%d", id), bytes.NewBuffer([]byte(putBody)))
-	reqPut.Header.Set("Content-Type", "application/json")
-	wPut := httptest.NewRecorder()
-	r.ServeHTTP(wPut, reqPut)
-
-	var putRes struct {
-		Data struct {
-			CreatedAt string `json:"createdAt"`
-		} `json:"data"`
-	}
-	json.Unmarshal(wPut.Body.Bytes(), &putRes)
-	newCreated := putRes.Data.CreatedAt
-
-	// 3. Ensure createdAt timestamp didn't change
-	if originalCreated != newCreated {
-		t.Errorf("CreatedAt inadvertently changed from '%s' to '%s' during PUT operation!", originalCreated, newCreated)
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"status":"ok"`)) {
+		t.Errorf("expected status ok, got: %s", w.Body.String())
 	}
 }
 
-func TestCreateProduct_ReturnsErrorWhenTypesAreInvalid(t *testing.T) {
+// TestReadyzWithDB verifies /readyz returns 200 when the DB is connected.
+func TestReadyzWithDB(t *testing.T) {
 	r, tx := setupRouter()
 	defer tx.Rollback()
 
-	// Send sellerId as a boolean instead of an int
-	postBody := `{"sellerId": true, "title": "Test Boolean", "description": "Desc", "price": 10.00}`
-	req := httptest.NewRequest("POST", "/products", bytes.NewBuffer([]byte(postBody)))
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Input validation tests
+// ---------------------------------------------------------------------------
+
+// TestInvalidUserID verifies that non-integer or zero userId returns 400.
+func TestInvalidUserID(t *testing.T) {
+	r, tx := setupRouter()
+	defer tx.Rollback()
+
+	cases := []string{"/cart/abc", "/cart/0", "/cart/-1"}
+	for _, path := range cases {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("path %s: expected 400, got %d", path, w.Code)
+		}
+	}
+}
+
+// TestAddItem_MissingProductId verifies that omitting productId returns 400.
+func TestAddItem_MissingProductId(t *testing.T) {
+	r, tx := setupRouter()
+	defer tx.Rollback()
+
+	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+		bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status code %d when sending boolean for sellerId, got %d", http.StatusBadRequest, w.Code)
+		t.Errorf("expected 400 for missing productId, got %d", w.Code)
 	}
+}
 
-	var response struct {
-		Type     string `json:"type"`
-		Title    string `json:"title"`
-		Status   int    `json:"status"`
-		Detail   string `json:"detail"`
-		Instance string `json:"instance"`
-	}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
-	}
+// TestAddItem_InvalidProductIdType verifies that sending a boolean for productId returns 400.
+func TestAddItem_InvalidProductIdType(t *testing.T) {
+	r, tx := setupRouter()
+	defer tx.Rollback()
 
-	if response.Title != "Invalid request payload" {
-		t.Errorf("Expected title 'Invalid request payload', got '%s'", response.Title)
+	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+		bytes.NewBufferString(`{"productId": true}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for boolean productId, got %d", w.Code)
 	}
 }
