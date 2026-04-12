@@ -2,13 +2,14 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/config"
 	"github.com/bazaar-grupo16/cart-microservice/src/controller"
@@ -18,6 +19,7 @@ import (
 	"github.com/bazaar-grupo16/cart-microservice/src/service"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.uber.org/zap"
 )
 
@@ -49,41 +51,77 @@ func defaultMockCatalog() *MockCatalogClient {
 }
 
 // ---------------------------------------------------------------------------
-// Test helpers
+// TestMain — suite-level setup and teardown.
+// Connects to the real MongoDB instance (MONGO_URI env var) and clears the
+// test collection before and after the full suite runs.
 // ---------------------------------------------------------------------------
 
-// setupRouter creates a Gin router wired against a real test-DB transaction
-// and a MockCatalogClient. The transaction is rolled back in each test so
-// tests are isolated and don't leave data behind.
-func setupRouter() (*gin.Engine, *sql.Tx) {
+func TestMain(m *testing.M) {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 
+	// Load .env (optional — CI injects vars directly).
 	if err := godotenv.Load("../.env", ".env"); err != nil {
 		zap.S().Info("No .env file found; using system environment variables")
 	}
 
-	// Override DB name to the dedicated test database.
-	os.Setenv("DATABASE_NAME", "ecommerce_test")
-
-	config.ConnectDatabase()
-	config.RunMigrations()
-
-	tx, err := config.DB.Begin()
-	if err != nil {
-		zap.S().Fatalf("Failed to begin transaction: %v", err)
+	// Ensure we target the test database, not the production one.
+	if os.Getenv("MONGO_DB_NAME") == "" {
+		os.Setenv("MONGO_DB_NAME", "cart_test")
 	}
 
-	cartRepo := repository.NewCartRepository(tx)
-	cartService := service.NewCartService(cartRepo, defaultMockCatalog())
-	cartController := controller.NewCartController(cartService)
+	config.ConnectDatabase()
 
-	return router.SetupRouter(cartController), tx
+	// Clean the collection before and after all tests run.
+	cleanCollection()
+	code := m.Run()
+	cleanCollection()
+
+	os.Exit(code)
 }
 
-// helperAddItemToCart adds a cart item using the mock catalog (productId=1).
-// It uses Fatalf so the test fails immediately if the setup call fails.
-func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) int {
+// cleanCollection deletes all documents from the carts collection.
+func cleanCollection() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := config.CartCollection.DeleteMany(ctx, bson.D{}); err != nil {
+		zap.S().Warnw("Failed to clean test collection", "error", err)
+	}
+}
+
+// cleanUser removes the cart document for a specific user (used in t.Cleanup).
+func cleanUser(userID int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := config.CartCollection.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
+		zap.S().Warnw("Failed to clean user cart", "userID", userID, "error", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+// setupRouter creates a Gin router backed by the real MongoDB collection
+// and a MockCatalogClient that returns a fixed product (productId=1, price=9.99).
+// Each test must call t.Cleanup(func() { cleanUser(userID) }) to isolate state.
+func setupRouter() *gin.Engine {
+	cartRepo := repository.NewCartRepository(config.CartCollection)
+	cartService := service.NewCartService(cartRepo, defaultMockCatalog())
+	cartController := controller.NewCartController(cartService)
+	return router.SetupRouter(cartController)
+}
+
+// setupRouterWithCatalog creates a router with a custom CatalogClientI implementation.
+func setupRouterWithCatalog(catalog service.CatalogClientI) *gin.Engine {
+	cartRepo := repository.NewCartRepository(config.CartCollection)
+	cartService := service.NewCartService(cartRepo, catalog)
+	cartController := controller.NewCartController(cartService)
+	return router.SetupRouter(cartController)
+}
+
+// helperAddItemToCart adds productId=1 to the given user's cart via the HTTP API.
+func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) {
 	t.Helper()
 
 	body := `{"productId": 1}`
@@ -97,33 +135,40 @@ func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) int {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("helperAddItemToCart: expected 201, got %d — body: %s", w.Code, w.Body.String())
 	}
-
-	var resp struct {
-		Data struct {
-			ID int `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("helperAddItemToCart: failed to parse response: %v", err)
-	}
-	return resp.Data.ID
 }
 
 // ---------------------------------------------------------------------------
 // Cart tests
+// Each test uses a unique userID to avoid data collisions when tests run in
+// parallel. The userID values are arbitrary constants; they must be distinct
+// across all tests in this file.
 // ---------------------------------------------------------------------------
+
+const (
+	uidGetEmpty      = 1001
+	uidGetCart       = 1002
+	uidAdd           = 1003
+	uidNotFound      = 1004
+	uidUnavailable   = 1005
+	uidClear         = 1006
+	uidRemove        = 1007
+	uidRemoveWrong   = 1008
+	uidTotalPrice    = 1009
+	uidContentType   = 1010
+	uidLivez         = 1011
+	uidReadyz        = 1012
+	uidInvalidUser   = 1013
+	uidMissingProd   = 1014
+	uidInvalidType   = 1015
+)
 
 // TestGetEmptyCart verifies that GET /cart/{userId} for a new user returns
 // an empty items array and a totalPrice of 0.00.
 func TestGetEmptyCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidGetEmpty) })
 
-	req := httptest.NewRequest(http.MethodGet, "/cart/1", nil)
+	r := setupRouter()
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidGetEmpty), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -142,17 +187,12 @@ func TestGetEmptyCart(t *testing.T) {
 
 // TestGetCart verifies that added items appear in GET /cart/{userId}.
 func TestGetCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidGetCart) })
 
-	userID := 1
-	helperAddItemToCart(r, t, userID)
+	r := setupRouter()
+	helperAddItemToCart(r, t, uidGetCart)
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidGetCart), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -166,7 +206,8 @@ func TestGetCart(t *testing.T) {
 	var cartResp struct {
 		Data struct {
 			Items []struct {
-				ID int `json:"id"`
+				ProductID int `json:"productId"`
+				Quantity  int `json:"quantity"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -174,24 +215,23 @@ func TestGetCart(t *testing.T) {
 		t.Fatalf("failed to parse cart response: %v", err)
 	}
 	if len(cartResp.Data.Items) != 1 {
-		t.Errorf("expected 1 cart item, got %d", len(cartResp.Data.Items))
+		t.Errorf("expected 1 distinct cart item, got %d", len(cartResp.Data.Items))
+	}
+	if cartResp.Data.Items[0].Quantity != 1 {
+		t.Errorf("expected quantity 1, got %d", cartResp.Data.Items[0].Quantity)
 	}
 }
 
 // TestAddItemToCart verifies POST /cart/{userId}/items creates a CartItem with
-// the snapshot price and title from the mock catalog.
+// the snapshot price, title, and quantity=1 from the mock catalog.
 func TestAddItemToCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidAdd) })
 
-	userID := 1
+	r := setupRouter()
+
 	body := `{"productId": 1}`
 	req := httptest.NewRequest(http.MethodPost,
-		fmt.Sprintf("/cart/%d/items", userID),
+		fmt.Sprintf("/cart/%d/items", uidAdd),
 		bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -203,10 +243,10 @@ func TestAddItemToCart(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			ID        int     `json:"id"`
 			ProductID int     `json:"productId"`
 			Title     string  `json:"title"`
 			UnitPrice float64 `json:"unitPrice"`
+			Quantity  int     `json:"quantity"`
 			AddedAt   string  `json:"addedAt"`
 		} `json:"data"`
 	}
@@ -224,37 +264,55 @@ func TestAddItemToCart(t *testing.T) {
 	if item.UnitPrice != 9.99 {
 		t.Errorf("expected unitPrice 9.99, got %v", item.UnitPrice)
 	}
+	if item.Quantity != 1 {
+		t.Errorf("expected quantity 1 on first add, got %d", item.Quantity)
+	}
 	if item.AddedAt == "" {
 		t.Error("expected addedAt to be populated")
+	}
+}
+
+// TestAddSameItemIncrementsQuantity verifies that adding the same productId twice
+// increments the quantity to 2 instead of creating a duplicate entry.
+func TestAddSameItemIncrementsQuantity(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidAdd + 100) })
+
+	r := setupRouter()
+	helperAddItemToCart(r, t, uidAdd+100)
+	helperAddItemToCart(r, t, uidAdd+100)
+
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidAdd+100), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, getReq)
+
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				ProductID int `json:"productId"`
+				Quantity  int `json:"quantity"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) != 1 {
+		t.Errorf("expected 1 distinct item, got %d", len(cartResp.Data.Items))
+	}
+	if cartResp.Data.Items[0].Quantity != 2 {
+		t.Errorf("expected quantity 2 after two adds, got %d", cartResp.Data.Items[0].Quantity)
 	}
 }
 
 // TestAddItemToCart_ProductNotFound verifies that a mock returning ErrProductNotFound
 // results in a 404 problem+json response.
 func TestAddItemToCart_ProductNotFound(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-
-	if err := godotenv.Load("../.env", ".env"); err != nil {
-		zap.S().Info("No .env file found")
-	}
-	os.Setenv("DATABASE_NAME", "ecommerce_test")
-	config.ConnectDatabase()
-	config.RunMigrations()
-	tx, _ := config.DB.Begin()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidNotFound) })
 
 	notFoundMock := &MockCatalogClient{Err: service.ErrProductNotFound}
-	cartRepo := repository.NewCartRepository(tx)
-	cartService := service.NewCartService(cartRepo, notFoundMock)
-	cartController := controller.NewCartController(cartService)
-	r := router.SetupRouter(cartController)
+	r := setupRouterWithCatalog(notFoundMock)
 
-	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidNotFound),
 		bytes.NewBufferString(`{"productId": 9999}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -270,29 +328,12 @@ func TestAddItemToCart_ProductNotFound(t *testing.T) {
 
 // TestAddItemToCart_CatalogUnavailable verifies that ErrCatalogUnavailable maps to 503.
 func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-
-	if err := godotenv.Load("../.env", ".env"); err != nil {
-		zap.S().Info("No .env file found")
-	}
-	os.Setenv("DATABASE_NAME", "ecommerce_test")
-	config.ConnectDatabase()
-	config.RunMigrations()
-	tx, _ := config.DB.Begin()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidUnavailable) })
 
 	unavailableMock := &MockCatalogClient{Err: service.ErrCatalogUnavailable}
-	cartRepo := repository.NewCartRepository(tx)
-	cartService := service.NewCartService(cartRepo, unavailableMock)
-	cartController := controller.NewCartController(cartService)
-	r := router.SetupRouter(cartController)
+	r := setupRouterWithCatalog(unavailableMock)
 
-	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidUnavailable),
 		bytes.NewBufferString(`{"productId": 1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -308,26 +349,21 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 
 // TestClearCart verifies that DELETE /cart/{userId} empties the cart and is idempotent.
 func TestClearCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidClear) })
 
-	userID := 1
-	helperAddItemToCart(r, t, userID)
+	r := setupRouter()
+	helperAddItemToCart(r, t, uidClear)
 
-	// First clear
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", userID), nil)
+	// First clear.
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", uidClear), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", w.Code)
 	}
 
-	// Verify cart is empty
-	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
+	// Verify cart is empty.
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidClear), nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, getReq)
 
@@ -343,8 +379,8 @@ func TestClearCart(t *testing.T) {
 		t.Errorf("expected empty cart after clear, got %d items", len(cartResp.Data.Items))
 	}
 
-	// Second clear on empty cart must still return 204 (idempotent)
-	req2 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", userID), nil)
+	// Second clear on empty cart must still return 204 (idempotent).
+	req2 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/cart/%d", uidClear), nil)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusNoContent {
@@ -352,83 +388,56 @@ func TestClearCart(t *testing.T) {
 	}
 }
 
-// TestRemoveItemFromCart verifies DELETE /cart/{userId}/items/{cartItemId}.
+// TestRemoveItemFromCart verifies DELETE /cart/{userId}/items/{productId}.
 func TestRemoveItemFromCart(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidRemove) })
 
-	userID := 1
-	// Add two items
-	helperAddItemToCart(r, t, userID)
-	helperAddItemToCart(r, t, userID)
+	r := setupRouter()
 
-	// Get current cart to find a cartItemId
-	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
+	// Add productId=1 so it exists in the cart.
+	helperAddItemToCart(r, t, uidRemove)
+
+	// Remove by productId.
+	delReq := httptest.NewRequest(http.MethodDelete,
+		fmt.Sprintf("/cart/%d/items/%d", uidRemove, 1), nil)
 	w := httptest.NewRecorder()
+	r.ServeHTTP(w, delReq)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify cart is now empty.
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidRemove), nil)
+	w = httptest.NewRecorder()
 	r.ServeHTTP(w, getReq)
 
 	var cartResp struct {
 		Data struct {
-			Items []struct {
-				ID int `json:"id"`
-			} `json:"items"`
+			Items []interface{} `json:"items"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
-		t.Fatalf("failed to parse cart: %v", err)
-	}
-	if len(cartResp.Data.Items) < 2 {
-		t.Fatalf("expected at least 2 items, got %d", len(cartResp.Data.Items))
-	}
-
-	cartItemID := cartResp.Data.Items[0].ID
-
-	// Remove first item
-	delReq := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/cart/%d/items/%d", userID, cartItemID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, delReq)
-	if w.Code != http.StatusNoContent {
-		t.Errorf("expected 204, got %d", w.Code)
-	}
-
-	// Verify only 1 item remains and the deleted one is gone
-	getReq2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, getReq2)
-	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
 		t.Fatalf("failed to parse cart response: %v", err)
 	}
-
-	if len(cartResp.Data.Items) != 1 {
-		t.Errorf("expected 1 item remaining, got %d", len(cartResp.Data.Items))
-	}
-	for _, item := range cartResp.Data.Items {
-		if item.ID == cartItemID {
-			t.Errorf("item %d should have been deleted", cartItemID)
-		}
+	if len(cartResp.Data.Items) != 0 {
+		t.Errorf("expected 0 items after remove, got %d", len(cartResp.Data.Items))
 	}
 }
 
-// TestRemoveItemFromCart_WrongUser verifies that deleting another user's item returns 404.
+// TestRemoveItemFromCart_WrongUser verifies that deleting a product from a user
+// who does not have it in their cart returns 404.
 func TestRemoveItemFromCart_WrongUser(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidRemoveWrong) })
+	t.Cleanup(func() { cleanUser(uidRemoveWrong + 1) })
 
-	// Add item for user 1
-	cartItemID := helperAddItemToCart(r, t, 1)
+	r := setupRouter()
 
-	// Try to delete it as user 2
+	// Add item for uidRemoveWrong.
+	helperAddItemToCart(r, t, uidRemoveWrong)
+
+	// Try to delete it as uidRemoveWrong+1 (a different user who has no cart).
 	delReq := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/cart/%d/items/%d", 2, cartItemID), nil)
+		fmt.Sprintf("/cart/%d/items/%d", uidRemoveWrong+1, 1), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, delReq)
 
@@ -437,22 +446,19 @@ func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 	}
 }
 
-// TestTotalPriceCalculation verifies that totalPrice is the sum of all item unitPrices.
+// TestTotalPriceCalculation verifies that totalPrice is the sum of (unitPrice × quantity).
+// Adds the same product 3 times — each call increments quantity — so
+// totalPrice should be 3 × 9.99 = 29.97.
 func TestTotalPriceCalculation(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidTotalPrice) })
 
-	userID := 1
-	// Add 3 items — each mocked at 9.99
-	helperAddItemToCart(r, t, userID)
-	helperAddItemToCart(r, t, userID)
-	helperAddItemToCart(r, t, userID)
+	r := setupRouter()
 
-	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", userID), nil)
+	helperAddItemToCart(r, t, uidTotalPrice)
+	helperAddItemToCart(r, t, uidTotalPrice)
+	helperAddItemToCart(r, t, uidTotalPrice)
+
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidTotalPrice), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, getReq)
 
@@ -470,14 +476,11 @@ func TestTotalPriceCalculation(t *testing.T) {
 // TestContentTypeMiddleware verifies that POST without application/json returns
 // 400 with a problem+json body.
 func TestContentTypeMiddleware(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidContentType) })
 
-	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+	r := setupRouter()
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidContentType),
 		bytes.NewBufferString(`{"productId":1}`))
 	req.Header.Set("Content-Type", "text/plain")
 	w := httptest.NewRecorder()
@@ -512,13 +515,7 @@ func TestContentTypeMiddleware(t *testing.T) {
 
 // TestLivezAlwaysOK verifies /livez always returns 200 with {"status":"ok"}.
 func TestLivezAlwaysOK(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
-
+	r := setupRouter()
 	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -531,15 +528,9 @@ func TestLivezAlwaysOK(t *testing.T) {
 	}
 }
 
-// TestReadyzWithDB verifies /readyz returns 200 when the DB is connected.
+// TestReadyzWithDB verifies /readyz returns 200 when MongoDB is connected.
 func TestReadyzWithDB(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
-
+	r := setupRouter()
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -555,13 +546,7 @@ func TestReadyzWithDB(t *testing.T) {
 
 // TestInvalidUserID verifies that non-integer or zero userId returns 400.
 func TestInvalidUserID(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
-
+	r := setupRouter()
 	cases := []string{"/cart/abc", "/cart/0", "/cart/-1"}
 	for _, path := range cases {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -575,14 +560,10 @@ func TestInvalidUserID(t *testing.T) {
 
 // TestAddItem_MissingProductId verifies that omitting productId returns 400.
 func TestAddItem_MissingProductId(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidMissingProd) })
 
-	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+	r := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidMissingProd),
 		bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -595,14 +576,10 @@ func TestAddItem_MissingProductId(t *testing.T) {
 
 // TestAddItem_InvalidProductIdType verifies that sending a boolean for productId returns 400.
 func TestAddItem_InvalidProductIdType(t *testing.T) {
-	r, tx := setupRouter()
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	t.Cleanup(func() { cleanUser(uidInvalidType) })
 
-	req := httptest.NewRequest(http.MethodPost, "/cart/1/items",
+	r := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidInvalidType),
 		bytes.NewBufferString(`{"productId": true}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -612,3 +589,6 @@ func TestAddItem_InvalidProductIdType(t *testing.T) {
 		t.Errorf("expected 400 for boolean productId, got %d", w.Code)
 	}
 }
+
+// ensure time is imported (used implicitly by cleanUser/cleanCollection timeouts).
+var _ = time.Second

@@ -1,22 +1,17 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: db
+  mongo:
+    image: mongo:8
+    container_name: mongo_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DATABASE_USER:-admin}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret}
-      POSTGRES_DB: ${DATABASE_NAME:-ecommerce}
-    ports:
-      - "${DATABASE_PORT:-5432}:5432"
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-cart_db}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
+      - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-admin} -d ${DATABASE_NAME:-ecommerce}"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet" ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   api:
     build:
@@ -25,16 +20,17 @@ services:
     container_name: backend
     restart: unless-stopped
     environment:
-      # Podes sobreescribir configuraciones del .env aquí
       - PORT=${PORT:-8080}
-      - DATABASE_HOST=postgres
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-cart_db}
+      - CATALOG_SERVICE_URL=${CATALOG_SERVICE_URL:-http://catalog-service}
     env_file:
       - .env
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     depends_on:
-      postgres:
+      mongo:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  mongo_data:

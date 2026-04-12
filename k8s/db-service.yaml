@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# Kubernetes Service — Bazaar PostgreSQL Database
+# Kubernetes Service — Bazaar MongoDB Database
 # ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
@@ -13,5 +13,5 @@ spec:
     app: bazaar-db
   ports:
     - protocol: TCP
-      port: 5432
-      targetPort: 5432
+      port: 27017
+      targetPort: 27017

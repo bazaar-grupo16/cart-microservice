@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# CI/CD Pipeline — Bazaar Cart Microservice (Go/Gin)
+# CI/CD Pipeline — Bazaar Cart Microservice (Go/Gin + MongoDB)
 # ──────────────────────────────────────────────────────────────
 name: CI/CD
 
@@ -24,27 +24,7 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
-  # # ── 1. Lint ────────────────────────────────────────────────────
-  # lint:
-  #   name: Lint
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #     - uses: actions/checkout@v4
-
-  #     - name: Set up Go
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version-file: go.mod
-  #         cache: true
-
-  #     - name: Lint with golangci-lint
-  #       uses: golangci/golangci-lint-action@v6
-  #       with:
-  #         version: latest
-  #         args: --timeout=3m ./src/...
-
-  # ── 2. Security scan (SAST) ────────────────────────────────────
+  # ── 1. Security scan (SAST) ────────────────────────────────────
   sast:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -63,7 +43,7 @@ jobs:
         with:
           args: ./src/...
 
-  # ── 3. Test ────────────────────────────────────────────────────
+  # ── 2. Test ────────────────────────────────────────────────────
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -82,10 +62,10 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.test.yml down -v
 
-  # ── 4. Build & Push Docker image ──────────────────────────────
+  # ── 3. Build & Push Docker image ──────────────────────────────
   build:
     name: Build & Push
-    needs: [lint, sast, test]
+    needs: [sast, test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
@@ -108,7 +88,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
 
-  # ── 5. Deploy to Kubernetes ────────────────────────────────────
+  # ── 4. Deploy to Kubernetes ────────────────────────────────────
   deploy:
     name: Deploy to K8s
     needs: build
@@ -130,13 +110,11 @@ jobs:
         env:
           IMAGE_TAG: ${{ github.sha }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
           CATALOG_SERVICE_URL: ${{ secrets.CATALOG_SERVICE_URL }}
         run: |
           sudo apt-get install -y gettext-base
           for f in k8s/*.yaml; do
-            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${DB_USER} ${DB_PASSWORD} ${DB_NAME} ${CATALOG_SERVICE_URL}' \
+            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${MONGO_URI} ${CATALOG_SERVICE_URL}' \
               < "$f" | kubectl apply -f - -n bazaar-dev
           done

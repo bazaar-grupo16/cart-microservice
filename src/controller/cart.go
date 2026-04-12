@@ -12,19 +12,19 @@ import (
 	"go.uber.org/zap"
 )
 
-// CartController handles cart-related HTTP requests
+// CartController handles cart-related HTTP requests.
 type CartController struct {
 	CartService *service.CartService
 }
 
-// NewCartController creates a new instance of CartController
+// NewCartController creates a new instance of CartController.
 func NewCartController(cartService *service.CartService) *CartController {
 	return &CartController{
 		CartService: cartService,
 	}
 }
 
-// GetCart handles GET /cart/:user_id
+// GetCart handles GET /cart/:user_id.
 func (c *CartController) GetCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
 	userID, err := strconv.Atoi(strId)
@@ -44,7 +44,7 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": cart})
 }
 
-// ClearCart handles DELETE /cart/:user_id
+// ClearCart handles DELETE /cart/:user_id.
 func (c *CartController) ClearCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
 	userID, err := strconv.Atoi(strId)
@@ -64,9 +64,10 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
-// AddToCart handles POST /cart/:user_id/items
-// It accepts only a productId; the title and unitPrice are fetched from the Catalog
-// service and stored as an immutable snapshot.
+// AddToCart handles POST /cart/:user_id/items.
+// Accepts a productId; the title and unitPrice are fetched from the Catalog service
+// and stored as an immutable snapshot. If the product is already in the cart, its
+// quantity is incremented instead of adding a duplicate entry.
 func (c *CartController) AddToCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
 	userID, err := strconv.Atoi(strId)
@@ -106,7 +107,9 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 	}
 }
 
-// RemoveFromCart handles DELETE /cart/:user_id/items/:cart_item_id
+// RemoveFromCart handles DELETE /cart/:user_id/items/:product_id.
+// The :product_id path parameter now refers to the catalog product ID, since cart
+// items are identified by their productId (one entry per product per user).
 func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
 	userID, err := strconv.Atoi(strId)
@@ -116,21 +119,22 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		return
 	}
 
-	strItemId := ctx.Param("cart_item_id")
-	cartItemID, err := strconv.Atoi(strItemId)
-	if err != nil || cartItemID <= 0 {
-		zap.S().Debugw("Invalid cart item ID format", "id", strItemId, "error", err)
-		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Item ID", "The provided item identification format is invalid", ctx.Request.URL.String())
+	strProductId := ctx.Param("cart_item_id")
+	productID, err := strconv.Atoi(strProductId)
+	if err != nil || productID <= 0 {
+		zap.S().Debugw("Invalid product ID format for removing from cart", "id", strProductId, "error", err)
+		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Product ID", "The provided product identification format is invalid", ctx.Request.URL.String())
 		return
 	}
 
-	err = c.CartService.RemoveFromCart(userID, cartItemID)
+	err = c.CartService.RemoveFromCart(userID, productID)
 	if err != nil {
-		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "cartItemID", cartItemID, "error", err)
+		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "productID", productID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
-			"Could not find the requested item in this user's cart", ctx.Request.URL.String())
+			"Could not find the requested product in this user's cart", ctx.Request.URL.String())
 		return
 	}
 
 	ctx.Status(http.StatusNoContent)
 }
+

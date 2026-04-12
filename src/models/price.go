@@ -1,14 +1,16 @@
 package models
 
 import (
-	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"math/big"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Price is a custom type that uses json.Number to ensure precision during JSON unmarshaling.
 // All arithmetic and comparisons use math/big.Rat for exact decimal operations.
+// In MongoDB it is stored as a string with exactly two decimal places.
 type Price json.Number
 
 // Rat returns the exact rational representation of the price string.
@@ -63,6 +65,29 @@ func (p *Price) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalBSONValue implements bson.ValueMarshaler so that Price is stored in MongoDB
+// as a string with exactly two decimal places (e.g. "9.99").
+func (p Price) MarshalBSONValue() (bson.Type, []byte, error) {
+	// Reuse MarshalJSON to get the canonical "X.YY" string representation.
+	b, err := p.MarshalJSON()
+	if err != nil {
+		return bson.TypeNull, nil, err
+	}
+	// b is the raw JSON number (no quotes). Wrap it in a BSON string.
+	return bson.MarshalValue(string(b))
+}
+
+// UnmarshalBSONValue implements bson.ValueUnmarshaler so that Price can be read
+// back from a MongoDB string field.
+func (p *Price) UnmarshalBSONValue(t bson.Type, raw []byte) error {
+	var s string
+	if err := bson.UnmarshalValue(t, raw, &s); err != nil {
+		return fmt.Errorf("Price.UnmarshalBSONValue: %w", err)
+	}
+	*p = Price(s)
+	return nil
+}
+
 // Cmp compares two Price values using exact arithmetic.
 // Returns -1 if p < other, 0 if p == other, +1 if p > other.
 func (p Price) Cmp(other Price) int {
@@ -87,30 +112,4 @@ func (p Price) IsAtLeast(min string) bool {
 func (p Price) Add(other Price) Price {
 	sum := new(big.Rat).Add(p.Rat(), other.Rat())
 	return Price(sum.FloatString(2))
-}
-
-// Scan implements the sql.Scanner interface for database compatibility.
-func (p *Price) Scan(value interface{}) error {
-	if value == nil {
-		*p = Price("0.00")
-		return nil
-	}
-	switch v := value.(type) {
-	case []byte:
-		*p = Price(string(v))
-	case string:
-		*p = Price(v)
-	case float64:
-		// Use Rat to avoid precision loss from Sprintf
-		r := new(big.Rat).SetFloat64(v)
-		*p = Price(r.FloatString(2))
-	default:
-		return fmt.Errorf("unsupported type for Price: %T", value)
-	}
-	return nil
-}
-
-// Value implements the driver.Valuer interface for database compatibility.
-func (p Price) Value() (driver.Value, error) {
-	return string(p), nil
 }

@@ -1,63 +1,66 @@
 package config
 
 import (
-	"database/sql"
-	"fmt"
+	"context"
 	"os"
+	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
-	_ "github.com/lib/pq"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.uber.org/zap"
 )
 
-var DB *sql.DB
+// MongoClient is the shared MongoDB client used across the application.
+var MongoClient *mongo.Client
 
-// ConnectDatabase establishes a connection to the PostgreSQL database using environment variables and assigns it to the global DB variable. It also logs the connection status.
+// CartCollection is the MongoDB collection that stores cart documents.
+var CartCollection *mongo.Collection
+
+// ConnectDatabase establishes a connection to MongoDB using the MONGO_URI
+// environment variable and stores the cart collection in CartCollection.
+// It also ensures a unique index on the "userId" field so that one document
+// per user is enforced at the database level.
 func ConnectDatabase() {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		os.Getenv("DATABASE_HOST"),
-		os.Getenv("DATABASE_PORT"),
-		os.Getenv("DATABASE_USER"),
-		os.Getenv("DATABASE_PASSWORD"),
-		os.Getenv("DATABASE_NAME"),
-	)
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		zap.S().Fatal("MONGO_URI environment variable is not set")
+	}
 
-	db, err := sql.Open("postgres", dsn)
+	dbName := os.Getenv("MONGO_DB_NAME")
+	if dbName == "" {
+		zap.S().Fatal("MONGO_DB_NAME environment variable is not set")
+	}
+
+	collName := os.Getenv("MONGO_COLLECTION")
+	if collName == "" {
+		zap.S().Fatal("MONGO_COLLECTION environment variable is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
-		zap.S().Fatal("Error opening DB:", err)
+		zap.S().Fatalw("Failed to create MongoDB client", "error", err)
 	}
 
-	if err = db.Ping(); err != nil {
-		zap.S().Fatal("Error connecting to DB:", err)
+	// Verify the connection is reachable before proceeding.
+	if err := client.Ping(ctx, nil); err != nil {
+		zap.S().Fatalw("Failed to ping MongoDB", "error", err)
 	}
 
-	DB = db
-	zap.S().Info("Connected to PostgreSQL")
-}
+	MongoClient = client
+	CartCollection = client.Database(dbName).Collection(collName)
 
-// RunMigrations runs the database migrations using the golang-migrate library. It constructs the DSN for the PostgreSQL database, initializes the migrator with the file source for migrations, and applies any pending migrations. It also logs the migration status.
-func RunMigrations() {
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		os.Getenv("DATABASE_USER"),
-		os.Getenv("DATABASE_PASSWORD"),
-		os.Getenv("DATABASE_HOST"),
-		os.Getenv("DATABASE_PORT"),
-		os.Getenv("DATABASE_NAME"),
-	)
-
-	wd, _ := os.Getwd()
-	m, err := migrate.New("file://"+wd+"/db/migrations", dsn)
+	// Ensure a unique sparse index on userId so each user has at most one cart document.
+	_, err = CartCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "userId", Value: 1}},
+		Options: options.Index().SetUnique(true).SetSparse(true),
+	})
 	if err != nil {
-		zap.S().Fatal("Error creating migrator:", err)
+		zap.S().Warnw("Could not create userId index (may already exist)", "error", err)
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		zap.S().Fatal("Error running migrations:", err)
-	}
-
-	zap.S().Info("Migrations applied successfully")
+	zap.S().Infow("Connected to MongoDB", "db", dbName, "collection", collName)
 }

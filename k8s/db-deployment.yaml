@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# Kubernetes Deployment — Bazaar PostgreSQL Database
+# Kubernetes Deployment — Bazaar MongoDB Database
 # ──────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
@@ -18,59 +18,42 @@ spec:
         app: bazaar-db
     spec:
       containers:
-        - name: postgres
-          image: postgres:16-alpine
+        - name: mongo
+          image: mongo:8
           ports:
-            - containerPort: 5432
-          # ── Environment from Kubernetes Secret ──────
+            - containerPort: 27017
           env:
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: bazaar-db-credentials
-                  key: DB_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bazaar-db-credentials
-                  key: DB_PASSWORD
-            - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: bazaar-db-credentials
-                  key: DB_NAME
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+            - name: MONGO_INITDB_DATABASE
+              value: cart_db
           # ── Probes ─────────────────────────────────
           livenessProbe:
             exec:
               command:
-                - /bin/sh
-                - -c
-                - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+                - mongosh
+                - --eval
+                - "db.adminCommand('ping').ok"
+                - --quiet
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
             exec:
               command:
-                - /bin/sh
-                - -c
-                - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+                - mongosh
+                - --eval
+                - "db.adminCommand('ping').ok"
+                - --quiet
             initialDelaySeconds: 5
             periodSeconds: 10
           # ── Resources ──────────────────────────────
           resources:
-            # requests:
-            #   cpu: 100m
-            #   memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi
           # ── Persistent Storage ──────────────────────
           volumeMounts:
-            - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+            - name: mongo-data
+              mountPath: /data/db
       volumes:
-        - name: postgres-data
+        - name: mongo-data
           persistentVolumeClaim:
             claimName: bazaar-db-pvc

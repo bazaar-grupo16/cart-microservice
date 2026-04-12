@@ -1,20 +1,27 @@
 package service
 
 import (
-	"errors"
-
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
-	"github.com/bazaar-grupo16/cart-microservice/src/repository"
 )
+
+// CartRepositoryI defines the persistence contract for the cart service.
+// Using an interface here makes the service layer testable without a real MongoDB
+// instance when only unit-level tests are needed.
+type CartRepositoryI interface {
+	GetCartByUserID(userID int) (*models.Cart, error)
+	AddItem(userID int, item *models.CartItem) error
+	RemoveItem(userID int, productID int) error
+	ClearCart(userID int) error
+}
 
 // CartService provides business logic for shopping cart operations.
 type CartService struct {
-	CartRepository *repository.CartRepository
+	CartRepository CartRepositoryI
 	CatalogClient  CatalogClientI // interface — allows mocking in tests
 }
 
 // NewCartService creates a new CartService instance.
-func NewCartService(cartRepo *repository.CartRepository, catalogClient CatalogClientI) *CartService {
+func NewCartService(cartRepo CartRepositoryI, catalogClient CatalogClientI) *CartService {
 	return &CartService{
 		CartRepository: cartRepo,
 		CatalogClient:  catalogClient,
@@ -24,22 +31,18 @@ func NewCartService(cartRepo *repository.CartRepository, catalogClient CatalogCl
 // GetCartByUserID retrieves the cart for a given user.
 // An unknown userId returns an empty cart (no error), as per the OpenAPI spec.
 func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
-	items, err := s.CartRepository.GetCartItemsByUserID(userID)
-	if err != nil {
-		return nil, err
-	}
-	return models.NewCart(userID, items), nil
+	return s.CartRepository.GetCartByUserID(userID)
 }
 
 // ClearCart removes all items from the user's cart.
-// Idempotent — clearing an empty cart is not an error.
+// Idempotent — clearing an empty or non-existent cart is not an error.
 func (s *CartService) ClearCart(userID int) error {
-	return s.CartRepository.DeleteAllCartItemsWithUserID(userID)
+	return s.CartRepository.ClearCart(userID)
 }
 
-// AddToCart adds a new item to the user's cart.
+// AddToCart adds a product to the user's cart (or increments its quantity).
 // It fetches the current price and title from the Catalog service and persists them
-// as an immutable snapshot so future price changes in the catalog don't affect the cart.
+// as an immutable snapshot on first add; subsequent adds simply increment quantity.
 //
 // Returns:
 //   - ErrProductNotFound if the catalog returns 404.
@@ -54,27 +57,12 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 	item.Title = product.Title
 	item.UnitPrice = product.Price
 
-	return s.CartRepository.CreateCartItem(userID, item)
+	return s.CartRepository.AddItem(userID, item)
 }
 
-// RemoveFromCart removes a specific item from the user's cart.
-// Returns an error if the item does not exist or does not belong to the given userId.
-func (s *CartService) RemoveFromCart(userID int, cartItemID int) error {
-	items, err := s.CartRepository.GetCartItemsByUserID(userID)
-	if err != nil {
-		return err
-	}
-
-	var found bool
-	for _, item := range items {
-		if item.ID == cartItemID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return errors.New("cart item not found")
-	}
-
-	return s.CartRepository.DeleteCartItem(cartItemID)
+// RemoveFromCart removes the product entry from the user's cart.
+// Returns an error (propagated from the repository) if the product is not in the cart
+// or does not belong to the given user.
+func (s *CartService) RemoveFromCart(userID int, productID int) error {
+	return s.CartRepository.RemoveItem(userID, productID)
 }

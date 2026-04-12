@@ -1,34 +1,42 @@
 package models
 
-// Cart represents a shopping cart for a user, containing multiple items and the total price.
+// Cart represents a shopping cart document stored in MongoDB.
+// One document per user — items are embedded in the "items" array.
 type Cart struct {
-	UserID     int        `json:"userId"`
-	Items      []CartItem `json:"items"`
-	TotalPrice Price      `json:"totalPrice"`
+	UserID     int        `bson:"userId"     json:"userId"`
+	Items      []CartItem `bson:"items"      json:"items"`
+	TotalPrice Price      `bson:"totalPrice" json:"totalPrice"`
 }
 
-// CartItem represents an individual item in the shopping cart, including product details and price. Note: The price here is a snapshot of the product price at the time it was added to the cart, not a reference to the current product price.
+// CartItem represents a single product entry in the cart.
+// There is at most one CartItem per productId per user.
+// Quantity tracks how many units of that product are in the cart.
+// UnitPrice is an immutable snapshot captured when the item was first added.
 type CartItem struct {
-	ID        int    `json:"id"`
-	ProductID int    `json:"productId"`
-	Title     string `json:"title"`
-	UnitPrice Price  `json:"unitPrice"`
-	AddedAt   string `json:"addedAt"`
+	ProductID int    `bson:"productId" json:"productId"`
+	Title     string `bson:"title"     json:"title"`
+	UnitPrice Price  `bson:"unitPrice" json:"unitPrice"`
+	Quantity  int    `bson:"quantity"  json:"quantity"`
+	AddedAt   string `bson:"addedAt"   json:"addedAt"`
 }
 
-// NewCart creates a new Cart instance for a given user with the provided items and calculates the total price.
+// NewCart creates a Cart instance for a given user with the provided items and
+// calculates the total price as the sum of (unitPrice × quantity) for every item.
 func NewCart(userID int, items []CartItem) *Cart {
 	total := Price("0.00")
 	for _, item := range items {
-		total = total.Add(item.UnitPrice)
+		for range item.Quantity {
+			total = total.Add(item.UnitPrice)
+		}
 	}
 
-	Items := []CartItem{}
-	Items = append(Items, items...)
+	// Always return an initialised slice so the JSON output is [] not null.
+	result := make([]CartItem, len(items))
+	copy(result, items)
 
 	return &Cart{
 		UserID:     userID,
-		Items:      Items,
+		Items:      result,
 		TotalPrice: total,
 	}
 }

@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	// Initialize structured logger
+	// Initialize structured logger.
 	logger, _ := zap.NewProduction()
 	defer func() {
 		if err := logger.Sync(); err != nil {
@@ -24,17 +24,16 @@ func main() {
 
 	zap.ReplaceGlobals(logger)
 
-	// Load environment variables from .env file (fallback to system env)
+	// Load environment variables from .env file (fallback to system env).
 	if err := godotenv.Load("../.env"); err != nil {
 		zap.S().Info("No .env file found; using system environment variables")
 	}
 
-	// Connect to PostgreSQL and run pending migrations
+	// Connect to MongoDB (reads MONGO_URI from environment).
 	config.ConnectDatabase()
-	config.RunMigrations()
 
-	// Dependency injection — cart domain only
-	cartRepo := repository.NewCartRepository(config.DB)
+	// Dependency injection — cart domain only.
+	cartRepo := repository.NewCartRepository(config.CartCollection)
 	catalogClient := service.NewCatalogClient(os.Getenv("CATALOG_SERVICE_URL"))
 	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)

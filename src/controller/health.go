@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/config"
 	"github.com/gin-gonic/gin"
@@ -16,12 +18,15 @@ func LivezHandler(ctx *gin.Context) {
 }
 
 // ReadyzHandler reports that the service is ready to handle requests.
-// It verifies connectivity to PostgreSQL via a lightweight Ping.
+// It verifies connectivity to MongoDB via a lightweight Ping command.
 // Returns 503 if the database is unreachable so Kubernetes stops routing traffic
 // to this pod until the dependency recovers.
 func ReadyzHandler(ctx *gin.Context) {
-	if err := config.DB.Ping(); err != nil {
-		zap.S().Errorw("Readiness check failed: database unreachable", "error", err)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := config.MongoClient.Ping(pingCtx, nil); err != nil {
+		zap.S().Errorw("Readiness check failed: MongoDB unreachable", "error", err)
 		ctx.JSON(http.StatusServiceUnavailable, gin.H{
 			"status": "unavailable",
 			"detail": "database connection failed",
