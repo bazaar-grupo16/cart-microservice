@@ -11,14 +11,14 @@ echo "Waiting for database to be ready..."
 
 # Then the backend tests
 echo "Running backend tests inside container..."
-docker compose -f docker-compose.test.yml up -d test
+docker compose -f docker-compose.test.yml up -d test-runner
 
 # Wait for the test container to finish running
-docker compose -f docker-compose.test.yml wait test
+docker compose -f docker-compose.test.yml wait test-runner
 
 # After that show the logs for the tests
 echo "================ TEST LOGS ================"
-docker compose -f docker-compose.test.yml logs test
+docker compose -f docker-compose.test.yml logs test-runner
 echo "==========================================="
 
 # And then delete all the containers related to the tests
