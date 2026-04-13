@@ -1,182 +1,105 @@
-# Bazaar — Microservice Template
+# Bazaar — Microservicio de Carrito
 
-Template base para microservicios Python / FastAPI del ecosistema **Bazaar**.
+Este es el microservicio de **Carrito** del ecosistema **Bazaar**, encargado de gestionar los carritos de compras de los usuarios de forma persistente.
 
-## Stack
+## Stack Tecnológico
 
 | Capa | Tecnología |
 |------|-----------|
-| Backend | Python 3.11+, FastAPI, Pydantic, SQLAlchemy |
-| Base de datos | PostgreSQL (configurable por env vars) |
-| Contenedor | Docker (multi-stage, non-root) |
-| Orquestación | Kubernetes (DigitalOcean) |
-| CI/CD | GitHub Actions → GHCR → DOKS |
+| Lenguaje | Golang 1.25.0+ |
+| Framework Web | Gin Gonic |
+| Base de Datos | MongoDB 8.0 |
+| Logging | Zap Logger (Uber) |
+| Contenedor | Docker (multi-stage) |
+| Orquestación | Kubernetes (DOKS) |
+| CI/CD | GitHub Actions |
 
-## Estructura del proyecto
+## Arquitectura
+
+El microservicio sigue una arquitectura por capas para facilitar el mantenimiento y testing:
+
+- **Controller**: Gestiona los endpoints HTTP, valida los parámetros de entrada y formatea las respuestas (utiliza Problem JSON para errores).
+- **Service**: Contiene la lógica de negocio. Se comunica con el repositorio y coordina llamadas externas (ej. al catálogo).
+- **Repository**: Capa de persistencia que encapsula todas las operaciones de MongoDB utilizando el driver oficial (`mongo-driver/v2`).
+- **Models**: Definiciones de estructuras de datos (Cart, CartItem, Price) compartidas entre capas.
+- **Middleware**: Manejo de concerns transversales como validación de Content-Type y recuperación de pánicos.
+
+### Detalles de Implementación
+
+- **Snapshot de Productos**: Al agregar un ítem al carrito, se guarda un "snapshot" del título y el precio unitario del catálogo. Esto garantiza que el precio se mantenga estable durante la sesión de compra.
+- **Precisión de Precios**: Se utiliza un sistema de alta precisión (`math/big`) para evitar errores de redondeo de punto flotante en los cálculos del total.
+- **Retry Logic**: El servicio implementa mecanismos de reintento y validación de disponibilidad para conexiones a la base de datos y servicios externos.
+
+## Estructura del Proyecto
 
 ```
 ├── src/
-│   ├── api/            # Routers de FastAPI
-│   │   └── health.py   # /livez y /readyz
-│   ├── core/           # Configuración, DB, logging
-│   │   ├── config.py
-│   │   ├── database.py  # Engine, sesión, base, y retry de conexión
-│   │   ├── dependencies.py
-│   │   └── logging.py
-│   ├── models/         # Entidades SQLAlchemy (vacío — extender aquí)
-│   ├── schemas/        # Modelos Pydantic (vacío — extender aquí)
-│   ├── services/       # Lógica de negocio (vacío — extender aquí)
-│   └── main.py         # Punto de entrada
-├── tests/
-│   ├── conftest.py
-│   └── test_health.py
+│   ├── config/         # Configuración y conexión a DB
+│   ├── controller/     # Handlers de la API (Gin)
+│   ├── middleware/     # Middlewares de Gin
+│   ├── models/         # Estructuras de datos/entidades
+│   ├── repository/     # Operaciones de MongoDB
+│   ├── router/         # Definición de rutas
+│   ├── service/        # Lógica de negocio y clientes externos
+│   ├── utils/          # Utilidades (JSON helpers, etc.)
+│   └── main.go         # Punto de entrada
 ├── scripts/
-│   ├── run_tests.sh    # Wrapper para correr tests (Linux/macOS)
-│   └── run_tests.ps1   # Wrapper para correr tests (Windows)
-├── k8s/
-│   ├── app-deployment.yaml   # Deployment del microservicio
-│   ├── app-service.yaml      # Service (ClusterIP) del microservicio
-│   ├── db-deployment.yaml    # Deployment de PostgreSQL
-│   ├── db-service.yaml       # Service (ClusterIP) de PostgreSQL
-│   ├── db-pvc.yaml           # PersistentVolumeClaim para la BD
-│   └── secret.yaml           # ⚠️ Template — NO commitear valores reales
-├── .github/workflows/
-│   └── deploy.yml
-├── Dockerfile              # Imagen de producción
-├── Dockerfile.test         # Imagen para correr tests
-├── docker-compose.test.yml # Levanta PostgreSQL + test runner
-├── requirements.txt
-└── .env.example
+│   └── run_tests.sh    # Script para ejecutar tests con Docker
+├── Dockerfile          # Imagen de producción
+├── docker-compose.yaml # Entorno de desarrollo local
+├── go.mod              # Dependencias de Go
+└── .env.example        # Template de variables de entorno
 ```
 
-## Setup local
+## Configuración Local
 
-```bash
-# 1. Clonar y entrar al directorio
-git clone <REPO_URL> && cd template-microservice
+### Requisitos
+- [Go 1.25+](https://go.dev/doc/install)
+- [Docker](https://docs.docker.com/get-docker/) y [Docker Compose](https://docs.docker.com/compose/install/)
 
-# 2. Crear entorno virtual
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
+### Pasos para levantar el servicio
+1. **Configurar el entorno**:
+   ```bash
+   cp .env.example .env
+   # Ajustar variables si es necesario (MONGO_URI, PORT, etc.)
+   ```
 
-# 3. Instalar dependencias
-pip install -r requirements.txt
+2. **Levantar con Docker Compose**:
+   ```bash
+   docker compose up --build
+   ```
+   Esto levantará una instancia de MongoDB y la API en el puerto `8080` (por defecto).
 
-# 4. Configurar variables de entorno
-cp .env.example .env
-# Editar .env con las credenciales de tu base de datos local
+3. **Ejecutar localmente (para desarrollo)**:
+   ```bash
+   cd src
+   go run main.go
+   ```
 
-# 5. Levantar la aplicación
-uvicorn src.main:app --reload
-```
+## API Endpoints
 
-## Conectarse al cluster de DigitalOcean
+### Salud (Probes)
+- `GET /livez`: Liveness probe — responde 200 OK.
+- `GET /readyz`: Readiness probe — verifica conectividad con MongoDB.
 
-Requisitos:
-- Tener instalado [doctl](https://docs.digitalocean.com/reference/doctl/)
-- Tener instalado [kubectl](https://kubernetes.io/docs/tasks/tools/)
-
-```bash
-# 1. Iniciar sesión en doctl
-doctl auth init --context <NAME>
-doctl auth switch --context <NAME>
-
-# 2. Obtener credenciales del cluster
-doctl kubernetes cluster kubeconfig save <CLUSTER_ID>
-```
-
-## Endpoints disponibles
-
+### Carrito
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/livez` | Liveness probe — siempre 200 |
-| GET | `/readyz` | Readiness probe — verifica conexión a DB |
-| GET | `/docs` | Swagger UI (auto-generado) |
-| GET | `/redoc` | ReDoc (auto-generado) |
+| `GET` | `/cart/:user_id` | Obtiene el carrito del usuario. |
+| `DELETE` | `/cart/:user_id` | Vacía el carrito del usuario. |
+| `POST` | `/cart/:user_id/items` | Agrega un producto al carrito (acepta `product_id`). |
+| `DELETE` | `/cart/:user_id/items/:product_id` | Elimina un producto específico del carrito. |
 
 ## Tests
 
-Los tests corren contra una **base de datos PostgreSQL real** usando Docker Compose. No se usa mocking.
-
-El archivo `docker-compose.test.yml` levanta:
-1. Un contenedor **PostgreSQL 16** como base de datos.
-2. Un contenedor **test-runner** que ejecuta `pytest` contra esa base de datos.
-
-### Correr los tests
+El proyecto incluye tests de integración que corren contra una instancia real de MongoDB en Docker.
 
 ```bash
-# Linux / macOS
-./scripts/run_tests.sh
-
-# Windows (PowerShell)
-.\scripts\run_tests.ps1
-
-# O directamente con docker compose
-docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+# Ejecutar todos los tests
+./run_tests.sh
 ```
 
-> Los contenedores se limpian automáticamente al finalizar.
+## Docker & CI/CD
 
-## Docker
-
-```bash
-docker build -t template-service .
-docker run -p 8000:8000 --env-file .env template-service
-```
-
-## Kubernetes
-
-Los manifiestos en `k8s/` despliegan el microservicio junto con su propia base de datos PostgreSQL dentro del cluster.
-
-### Variables de entorno requeridas (GitHub Secrets)
-
-| Secret | Descripción |
-|--------|-------------|
-| `DIGITALOCEAN_ACCESS_TOKEN` | Personal Access Token de DigitalOcean |
-| `DB_USER` | Usuario de la base de datos |
-| `DB_PASSWORD` | Contraseña de la base de datos |
-| `DB_NAME` | Nombre de la base de datos |
-
-`DB_HOST` y `DB_PORT` están fijos en `k8s/secret.yaml` (`bazaar-db:5432`) ya que la BD corre dentro del cluster.
-Si se utilizase una base de datos externa, se deberían agregar las variables de entorno correspondientes.
-
-### Deploy manual
-
-```bash
-# Crear el namespace (solo la primera vez)
-kubectl create namespace bazaar-dev
-
-# Aplicar todos los manifiestos en orden
-kubectl apply -f k8s/db-pvc.yaml       -n bazaar-dev
-kubectl apply -f k8s/db-deployment.yaml -n bazaar-dev
-kubectl apply -f k8s/db-service.yaml    -n bazaar-dev
-kubectl apply -f k8s/secret.yaml        -n bazaar-dev
-kubectl apply -f k8s/app-deployment.yaml -n bazaar-dev
-kubectl apply -f k8s/app-service.yaml   -n bazaar-dev
-```
-
-### CI/CD automático
-
-El pipeline en `.github/workflows/deploy.yml` corre automáticamente en cada push a `main`:
-
-| Job | Se ejecuta cuando cambia... |
-|-----|----------------------------|
-| `lint` | `src/`, `tests/`, archivos de build |
-| `test` | `src/`, `tests/`, archivos de build |
-| `build` | `src/`, `tests/`, archivos de build (solo push a main) |
-| `deploy` | `src/` **o** `k8s/` (solo push a main) |
-
-## Conexión a la base de datos
-
-Al iniciar, la aplicación espera a que la base de datos esté disponible usando **backoff exponencial** (1s → 2s → 4s → … hasta 30s por intento, máximo 5 minutos en total) antes de ejecutar las migraciones y aceptar tráfico. Esto evita crasheos durante el arranque del pod cuando la BD aún está inicializándose.
-
-## Extender el template
-
-Para agregar una nueva entidad al microservicio:
-
-1. Crear el modelo SQLAlchemy en `src/models/`.
-2. Crear los schemas Pydantic en `src/schemas/`.
-3. Implementar la lógica de negocio en `src/services/`.
-4. Crear el router en `src/api/` e incluirlo en `src/main.py`.
-5. Agregar tests en `tests/`.
+- **Dockerfile**: Utiliza un build multi-stage para generar una imagen optimizada basada en `alpine`.
+- **CI/CD**: Ubicado en `.github/workflows/`, ejecuta tests automáticamente en cada Pull Request y despliega a Kubernetes en cada push a `main`.

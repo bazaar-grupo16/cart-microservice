@@ -131,44 +131,63 @@ func (r *CartRepository) DecrementItem(userID int, productID int, delta int) err
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// First, apply the decrement.
-	result, err := r.col.UpdateOne(
-		ctx,
-		bson.D{
-			{Key: "userId", Value: userID},
-			{Key: "items.productId", Value: productID},
-		},
-		bson.D{
-			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: -delta}}},
-		},
-	)
-	if err != nil {
+	// Fetch the full Cart document to read the current item quantity.
+	var cart models.Cart
+	if err := r.col.FindOne(ctx, bson.D{
+		{Key: "userId", Value: userID},
+		{Key: "items.productId", Value: productID},
+	}).Decode(&cart); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return ErrCartItemNotFound
+		}
 		return err
 	}
-	if result.ModifiedCount == 0 {
+
+	// Locate the target item's current quantity.
+	var currentQty int
+	found := false
+	for _, item := range cart.Items {
+		if item.ProductID == productID {
+			currentQty = item.Quantity
+			found = true
+			break
+		}
+	}
+	if !found {
 		return ErrCartItemNotFound
 	}
 
-	// Read the document to check the resulting quantity.
-	var cart models.Cart
-	if err := r.col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart); err != nil {
-		return err
-	}
+	newQuantity := currentQty - delta
 
-	// If any item has quantity <= 0, remove it with $pull.
-	for _, item := range cart.Items {
-		if item.ProductID == productID && item.Quantity <= 0 {
-			_, err = r.col.UpdateOne(
-				ctx,
-				bson.D{{Key: "userId", Value: userID}},
-				bson.D{{Key: "$pull", Value: bson.D{
-					{Key: "items", Value: bson.D{{Key: "productId", Value: productID}}},
-				}}},
-			)
-			if err != nil {
-				return err
-			}
-			break
+	if newQuantity <= 0 {
+		// Remove the item entirely.
+		_, err := r.col.UpdateOne(
+			ctx,
+			bson.D{{Key: "userId", Value: userID}},
+			bson.D{{Key: "$pull", Value: bson.D{
+				{Key: "items", Value: bson.D{{Key: "productId", Value: productID}}},
+			}}},
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Set the new quantity.
+		result, err := r.col.UpdateOne(
+			ctx,
+			bson.D{
+				{Key: "userId", Value: userID},
+				{Key: "items.productId", Value: productID},
+			},
+			bson.D{
+				{Key: "$set", Value: bson.D{{Key: "items.$.quantity", Value: newQuantity}}},
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if result.ModifiedCount == 0 {
+			return ErrCartItemNotFound
 		}
 	}
 

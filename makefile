@@ -20,3 +20,6 @@ postgres:
 
 run:
 	docker compose up --build
+
+lint:
+	golangci-lint run --timeout 5m

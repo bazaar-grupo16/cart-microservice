@@ -141,7 +141,7 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 // IncrementItem handles PUT /cart/:user_id/:product_id/increment.
 // Increments the quantity of the specified product in the user's cart by the given amount.
 func (c *CartController) IncrementItem(ctx *gin.Context) {
-	userID, productID, ok := parseUserAndProduct(ctx)
+	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
 		return
 	}
@@ -168,7 +168,7 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 // Decrements the quantity of the specified product in the user's cart by the given amount.
 // If the resulting quantity is <= 0, the item is removed from the cart automatically.
 func (c *CartController) DecrementItem(ctx *gin.Context) {
-	userID, productID, ok := parseUserAndProduct(ctx)
+	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
 		return
 	}
@@ -189,27 +189,4 @@ func (c *CartController) DecrementItem(ctx *gin.Context) {
 	}
 
 	ctx.Status(http.StatusNoContent)
-}
-
-// parseUserAndProduct is a shared helper that extracts and validates the :user_id
-// and :product_id path parameters. It writes a 400 problem+json response and returns
-// false when either parameter is invalid, so callers can return immediately.
-func parseUserAndProduct(ctx *gin.Context) (userID int, productID int, ok bool) {
-	strUID := ctx.Param("user_id")
-	userID, err := strconv.Atoi(strUID)
-	if err != nil || userID <= 0 {
-		zap.S().Debugw("Invalid user ID format", "id", strUID, "error", err)
-		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
-		return 0, 0, false
-	}
-
-	strPID := ctx.Param("product_id")
-	productID, err = strconv.Atoi(strPID)
-	if err != nil || productID <= 0 {
-		zap.S().Debugw("Invalid product ID format", "id", strPID, "error", err)
-		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Product ID", "The provided product identification format is invalid", ctx.Request.URL.String())
-		return 0, 0, false
-	}
-
-	return userID, productID, true
 }
