@@ -14,6 +14,14 @@ import (
 // ErrCartItemNotFound is returned when the requested product is not in the user's cart.
 var ErrCartItemNotFound = errors.New("cart item not found for this user")
 
+// StockUpdate carries catalog-fresh stock and status for a single product,
+// used by UpdateStockStatus to patch cart items atomically.
+type StockUpdate struct {
+	ProductID int
+	Stock     int
+	Status    string
+}
+
 // CartRepository encapsulates all MongoDB operations for cart documents.
 // Each document represents one user's cart, with items embedded as an array.
 type CartRepository struct {
@@ -43,9 +51,9 @@ func (r *CartRepository) GetCartByUserID(userID int) (*models.Cart, error) {
 }
 
 // AddItem adds a product to the user's cart.
-// If the product already exists in the cart, its quantity is incremented by 1.
+// If the product already exists in the cart, its quantity is incremented by item.Quantity.
 // If the cart document does not exist yet, it is created (upsert).
-// The title and unitPrice are snapshot values passed in from the service layer.
+// The title, unitPrice, stock and status are snapshot values passed in from the service layer.
 // totalPrice is recalculated and persisted atomically on every write.
 func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -53,7 +61,8 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 	item.AddedAt = time.Now().UTC().Format(time.RFC3339)
 
-	// Attempt to increment quantity when the product is already in the cart.
+	// Attempt to increment quantity when the product is already in the cart,
+	// and update stock/status to latest values from catalog.
 	incrResult, err := r.col.UpdateOne(
 		ctx,
 		bson.D{
@@ -61,7 +70,11 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 			{Key: "items.productId", Value: item.ProductID},
 		},
 		bson.D{
-			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: 1}}},
+			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: item.Quantity}}},
+			{Key: "$set", Value: bson.D{
+				{Key: "items.$.stock", Value: item.Stock},
+				{Key: "items.$.status", Value: item.Status},
+			}},
 		},
 	)
 	if err != nil {
@@ -69,8 +82,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 	}
 
 	if incrResult.ModifiedCount == 0 {
-		// Product not found in the cart — push a new item entry with quantity = 1.
-		item.Quantity = 1
+		// Product not found in the cart — push a new item entry.
 		_, err = r.col.UpdateOne(
 			ctx,
 			bson.D{{Key: "userId", Value: userID}},
@@ -84,6 +96,114 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 	// Recalculate and persist totalPrice.
 	return r.recalcTotalPrice(ctx, userID)
+}
+
+// IncrementItem increments the quantity of an existing cart item by delta.
+// Returns ErrCartItemNotFound if the product is not in the user's cart.
+func (r *CartRepository) IncrementItem(userID int, productID int, delta int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := r.col.UpdateOne(
+		ctx,
+		bson.D{
+			{Key: "userId", Value: userID},
+			{Key: "items.productId", Value: productID},
+		},
+		bson.D{
+			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: delta}}},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if result.ModifiedCount == 0 {
+		return ErrCartItemNotFound
+	}
+
+	return r.recalcTotalPrice(ctx, userID)
+}
+
+// DecrementItem decrements the quantity of an existing cart item by delta.
+// If the resulting quantity is <= 0, the item is removed from the cart entirely.
+// Returns ErrCartItemNotFound if the product is not in the user's cart.
+func (r *CartRepository) DecrementItem(userID int, productID int, delta int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// First, apply the decrement.
+	result, err := r.col.UpdateOne(
+		ctx,
+		bson.D{
+			{Key: "userId", Value: userID},
+			{Key: "items.productId", Value: productID},
+		},
+		bson.D{
+			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: -delta}}},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if result.ModifiedCount == 0 {
+		return ErrCartItemNotFound
+	}
+
+	// Read the document to check the resulting quantity.
+	var cart models.Cart
+	if err := r.col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart); err != nil {
+		return err
+	}
+
+	// If any item has quantity <= 0, remove it with $pull.
+	for _, item := range cart.Items {
+		if item.ProductID == productID && item.Quantity <= 0 {
+			_, err = r.col.UpdateOne(
+				ctx,
+				bson.D{{Key: "userId", Value: userID}},
+				bson.D{{Key: "$pull", Value: bson.D{
+					{Key: "items", Value: bson.D{{Key: "productId", Value: productID}}},
+				}}},
+			)
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	return r.recalcTotalPrice(ctx, userID)
+}
+
+// UpdateStockStatus patches the stock and status fields for each listed product
+// in the user's cart using positional arrayFilters for atomic multi-field updates.
+func (r *CartRepository) UpdateStockStatus(userID int, updates []StockUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for _, u := range updates {
+		_, err := r.col.UpdateOne(
+			ctx,
+			bson.D{
+				{Key: "userId", Value: userID},
+				{Key: "items.productId", Value: u.ProductID},
+			},
+			bson.D{
+				{Key: "$set", Value: bson.D{
+					{Key: "items.$.stock", Value: u.Stock},
+					{Key: "items.$.status", Value: u.Status},
+				}},
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RemoveItem removes the cart entry for the given productId from the user's cart.
