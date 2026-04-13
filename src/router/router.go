@@ -23,6 +23,8 @@ func SetupRouter(cc *controller.CartController) *gin.Engine {
 	r.DELETE("/cart/:user_id", cc.ClearCart)
 	r.POST("/cart/:user_id/items", cc.AddToCart)
 	r.DELETE("/cart/:user_id/items/:cart_item_id", cc.RemoveFromCart)
+	r.PUT("/cart/:user_id/:product_id/increment", cc.IncrementItem)
+	r.PUT("/cart/:user_id/:product_id/decrement", cc.DecrementItem)
 
 	return r
 }
