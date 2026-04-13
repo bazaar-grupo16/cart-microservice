@@ -13,7 +13,6 @@ import (
 
 	"github.com/bazaar-grupo16/cart-microservice/src/config"
 	"github.com/bazaar-grupo16/cart-microservice/src/controller"
-	"github.com/bazaar-grupo16/cart-microservice/src/models"
 	"github.com/bazaar-grupo16/cart-microservice/src/repository"
 	"github.com/bazaar-grupo16/cart-microservice/src/router"
 	"github.com/bazaar-grupo16/cart-microservice/src/service"
@@ -24,36 +23,45 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// MockCatalogClient — implements service.CatalogClientI for tests.
-// It returns a fixed product without making any HTTP calls, allowing tests to
-// run without a real Catalog service.
+// catalogMockServer — wraps an httptest.Server that simulates the Catalog API.
+// It allows tests to control whether the catalog is healthy, returns a 404,
+// or is completely unavailable (server closed).
 // ---------------------------------------------------------------------------
 
-type MockCatalogClient struct {
-	Product *models.Product
-	Err     error
+// newCatalogMockServer starts an httptest.Server that returns a fixed product
+// for any GET /products/{id} request.
+// The caller is responsible for calling server.Close() in a t.Cleanup call.
+func newCatalogMockServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{
+			"data": {
+				"id": 1,
+				"title": "Test Product",
+				"price": "9.99",
+				"stock": 42,
+				"status": "active"
+			}
+		}`)
+	})
+	return httptest.NewServer(mux)
 }
 
-// GetProduct satisfies CatalogClientI.
-func (m *MockCatalogClient) GetProduct(_ int) (*models.Product, error) {
-	return m.Product, m.Err
-}
-
-// defaultMockCatalog is a convenience mock that always returns a valid product.
-func defaultMockCatalog() *MockCatalogClient {
-	return &MockCatalogClient{
-		Product: &models.Product{
-			ID:    1,
-			Title: "Test Product",
-			Price: models.Price("9.99"),
-		},
-	}
+// newCatalogNotFoundServer returns a server that always responds 404.
+func newCatalogNotFoundServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"type":"about:blank","title":"Not Found","status":404,"detail":"Product not found","instance":"/products/9999"}`)
+	}))
 }
 
 // ---------------------------------------------------------------------------
 // TestMain — suite-level setup and teardown.
-// Connects to the real MongoDB instance (MONGO_URI env var) and clears the
-// test collection before and after the full suite runs.
 // ---------------------------------------------------------------------------
 
 func TestMain(m *testing.M) {
@@ -103,19 +111,23 @@ func cleanUser(userID int) {
 // ---------------------------------------------------------------------------
 
 // setupRouter creates a Gin router backed by the real MongoDB collection
-// and a MockCatalogClient that returns a fixed product (productId=1, price=9.99).
-// Each test must call t.Cleanup(func() { cleanUser(userID) }) to isolate state.
-func setupRouter() *gin.Engine {
-	cartRepo := repository.NewCartRepository(config.CartCollection)
-	cartService := service.NewCartService(cartRepo, defaultMockCatalog())
-	cartController := controller.NewCartController(cartService)
-	return router.SetupRouter(cartController)
+// and a real CatalogClient pointing at a local httptest server.
+func setupRouter(t *testing.T) (*gin.Engine, *httptest.Server) {
+	t.Helper()
+	catalogSrv := newCatalogMockServer(t)
+	r := buildRouter(catalogSrv.URL)
+	return r, catalogSrv
 }
 
-// setupRouterWithCatalog creates a router with a custom CatalogClientI implementation.
-func setupRouterWithCatalog(catalog service.CatalogClientI) *gin.Engine {
+// setupRouterWithCatalogURL creates a router using the given catalog base URL.
+func setupRouterWithCatalogURL(catalogURL string) *gin.Engine {
+	return buildRouter(catalogURL)
+}
+
+func buildRouter(catalogURL string) *gin.Engine {
 	cartRepo := repository.NewCartRepository(config.CartCollection)
-	cartService := service.NewCartService(cartRepo, catalog)
+	catalogClient := service.NewCatalogClient(catalogURL)
+	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)
 	return router.SetupRouter(cartController)
 }
@@ -138,36 +150,44 @@ func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) {
 }
 
 // ---------------------------------------------------------------------------
-// Cart tests
-// Each test uses a unique userID to avoid data collisions when tests run in
-// parallel. The userID values are arbitrary constants; they must be distinct
-// across all tests in this file.
+// User ID constants — each test uses a unique one to avoid collisions.
 // ---------------------------------------------------------------------------
 
 const (
-	uidGetEmpty      = 1001
-	uidGetCart       = 1002
-	uidAdd           = 1003
-	uidNotFound      = 1004
-	uidUnavailable   = 1005
-	uidClear         = 1006
-	uidRemove        = 1007
-	uidRemoveWrong   = 1008
-	uidTotalPrice    = 1009
-	uidContentType   = 1010
-	uidLivez         = 1011
-	uidReadyz        = 1012
-	uidInvalidUser   = 1013
-	uidMissingProd   = 1014
-	uidInvalidType   = 1015
+	uidGetEmpty           = 1001
+	uidGetCart            = 1002
+	uidAdd                = 1003
+	uidNotFound           = 1004
+	uidUnavailable        = 1005
+	uidClear              = 1006
+	uidRemove             = 1007
+	uidRemoveWrong        = 1008
+	uidTotalPrice         = 1009
+	uidContentType        = 1010
+	uidLivez              = 1011
+	uidReadyz             = 1012
+	uidInvalidUser        = 1013
+	uidMissingProd        = 1014
+	uidInvalidType        = 1015
+	uidIncrement          = 1016
+	uidDecrement          = 1017
+	uidDecrementToZero    = 1018
+	uidStockSynced        = 1019
+	uidAddCatalogDown     = 1020
 )
+
+// ---------------------------------------------------------------------------
+// Cart tests
+// ---------------------------------------------------------------------------
 
 // TestGetEmptyCart verifies that GET /cart/{userId} for a new user returns
 // an empty items array and a totalPrice of 0.00.
 func TestGetEmptyCart(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidGetEmpty) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidGetEmpty), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -189,7 +209,8 @@ func TestGetEmptyCart(t *testing.T) {
 func TestGetCart(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidGetCart) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 	helperAddItemToCart(r, t, uidGetCart)
 
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidGetCart), nil)
@@ -223,11 +244,12 @@ func TestGetCart(t *testing.T) {
 }
 
 // TestAddItemToCart verifies POST /cart/{userId}/items creates a CartItem with
-// the snapshot price, title, and quantity=1 from the mock catalog.
+// the snapshot price, title, quantity=1, stock and status from the mock catalog.
 func TestAddItemToCart(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidAdd) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 
 	body := `{"productId": 1}`
 	req := httptest.NewRequest(http.MethodPost,
@@ -247,6 +269,8 @@ func TestAddItemToCart(t *testing.T) {
 			Title     string  `json:"title"`
 			UnitPrice float64 `json:"unitPrice"`
 			Quantity  int     `json:"quantity"`
+			Stock     int     `json:"stock"`
+			Status    string  `json:"status"`
 			AddedAt   string  `json:"addedAt"`
 		} `json:"data"`
 	}
@@ -267,6 +291,12 @@ func TestAddItemToCart(t *testing.T) {
 	if item.Quantity != 1 {
 		t.Errorf("expected quantity 1 on first add, got %d", item.Quantity)
 	}
+	if item.Stock != 42 {
+		t.Errorf("expected stock 42, got %d", item.Stock)
+	}
+	if item.Status != "active" {
+		t.Errorf("expected status 'active', got '%s'", item.Status)
+	}
 	if item.AddedAt == "" {
 		t.Error("expected addedAt to be populated")
 	}
@@ -277,7 +307,9 @@ func TestAddItemToCart(t *testing.T) {
 func TestAddSameItemIncrementsQuantity(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidAdd + 100) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	helperAddItemToCart(r, t, uidAdd+100)
 	helperAddItemToCart(r, t, uidAdd+100)
 
@@ -304,13 +336,14 @@ func TestAddSameItemIncrementsQuantity(t *testing.T) {
 	}
 }
 
-// TestAddItemToCart_ProductNotFound verifies that a mock returning ErrProductNotFound
+// TestAddItemToCart_ProductNotFound verifies that a 404 from the catalog
 // results in a 404 problem+json response.
 func TestAddItemToCart_ProductNotFound(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidNotFound) })
 
-	notFoundMock := &MockCatalogClient{Err: service.ErrProductNotFound}
-	r := setupRouterWithCatalog(notFoundMock)
+	notFoundSrv := newCatalogNotFoundServer(t)
+	defer notFoundSrv.Close()
+	r := setupRouterWithCatalogURL(notFoundSrv.URL)
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidNotFound),
 		bytes.NewBufferString(`{"productId": 9999}`))
@@ -326,12 +359,16 @@ func TestAddItemToCart_ProductNotFound(t *testing.T) {
 	}
 }
 
-// TestAddItemToCart_CatalogUnavailable verifies that ErrCatalogUnavailable maps to 503.
+// TestAddItemToCart_CatalogUnavailable verifies that a closed catalog server
+// (simulating network failure) results in a 503 response.
 func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidUnavailable) })
 
-	unavailableMock := &MockCatalogClient{Err: service.ErrCatalogUnavailable}
-	r := setupRouterWithCatalog(unavailableMock)
+	// Start and immediately close the server — simulates catalog being down.
+	downSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	downSrv.Close()
+
+	r := setupRouterWithCatalogURL(downSrv.URL)
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidUnavailable),
 		bytes.NewBufferString(`{"productId": 1}`))
@@ -351,7 +388,8 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 func TestClearCart(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidClear) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 	helperAddItemToCart(r, t, uidClear)
 
 	// First clear.
@@ -392,7 +430,8 @@ func TestClearCart(t *testing.T) {
 func TestRemoveItemFromCart(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidRemove) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 
 	// Add productId=1 so it exists in the cart.
 	helperAddItemToCart(r, t, uidRemove)
@@ -430,7 +469,8 @@ func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidRemoveWrong) })
 	t.Cleanup(func() { cleanUser(uidRemoveWrong + 1) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 
 	// Add item for uidRemoveWrong.
 	helperAddItemToCart(r, t, uidRemoveWrong)
@@ -452,7 +492,8 @@ func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 func TestTotalPriceCalculation(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidTotalPrice) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 
 	helperAddItemToCart(r, t, uidTotalPrice)
 	helperAddItemToCart(r, t, uidTotalPrice)
@@ -470,6 +511,215 @@ func TestTotalPriceCalculation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Increment / Decrement tests
+// ---------------------------------------------------------------------------
+
+// TestIncrementItem verifies that PUT /cart/{userId}/{productId}/increment
+// increases the item's quantity by the requested amount.
+func TestIncrementItem(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidIncrement) })
+
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
+	// Start with quantity = 1.
+	helperAddItemToCart(r, t, uidIncrement)
+
+	// Increment by 3.
+	body := `{"quantity": 3}`
+	req := httptest.NewRequest(http.MethodPut,
+		fmt.Sprintf("/cart/%d/1/increment", uidIncrement),
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify quantity is now 4.
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidIncrement), nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, getReq)
+
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				ProductID int `json:"productId"`
+				Quantity  int `json:"quantity"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(wGet.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(cartResp.Data.Items))
+	}
+	if cartResp.Data.Items[0].Quantity != 4 {
+		t.Errorf("expected quantity 4 after increment by 3, got %d", cartResp.Data.Items[0].Quantity)
+	}
+}
+
+// TestDecrementItem verifies that PUT /cart/{userId}/{productId}/decrement
+// decreases the item's quantity when the result remains > 0.
+func TestDecrementItem(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidDecrement) })
+
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
+	// Add twice so quantity = 2.
+	helperAddItemToCart(r, t, uidDecrement)
+	helperAddItemToCart(r, t, uidDecrement)
+
+	// Decrement by 1 → expected quantity = 1.
+	body := `{"quantity": 1}`
+	req := httptest.NewRequest(http.MethodPut,
+		fmt.Sprintf("/cart/%d/1/decrement", uidDecrement),
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidDecrement), nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, getReq)
+
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				Quantity int `json:"quantity"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(wGet.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) != 1 {
+		t.Fatalf("expected 1 item to remain, got %d", len(cartResp.Data.Items))
+	}
+	if cartResp.Data.Items[0].Quantity != 1 {
+		t.Errorf("expected quantity 1, got %d", cartResp.Data.Items[0].Quantity)
+	}
+}
+
+// TestDecrementItemRemovesWhenZero verifies that decrementing the last unit
+// of an item removes it entirely from the cart.
+func TestDecrementItemRemovesWhenZero(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidDecrementToZero) })
+
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
+	// Add once → quantity = 1.
+	helperAddItemToCart(r, t, uidDecrementToZero)
+
+	// Decrement by 1 → quantity becomes 0 → item should be removed.
+	body := `{"quantity": 1}`
+	req := httptest.NewRequest(http.MethodPut,
+		fmt.Sprintf("/cart/%d/1/decrement", uidDecrementToZero),
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidDecrementToZero), nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, getReq)
+
+	var cartResp struct {
+		Data struct {
+			Items []interface{} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(wGet.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) != 0 {
+		t.Errorf("expected 0 items after decrement to zero, got %d", len(cartResp.Data.Items))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stock synchronization tests
+// ---------------------------------------------------------------------------
+
+// TestGetCart_StockSynced verifies that GET /cart/{userId} returns items with
+// up-to-date stock and status values fetched from the Catalog service.
+func TestGetCart_StockSynced(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidStockSynced) })
+
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
+	// Add item first — stock should be captured from catalog.
+	helperAddItemToCart(r, t, uidStockSynced)
+
+	// GET should re-sync stock/status.
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidStockSynced), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				Stock  int    `json:"stock"`
+				Status string `json:"status"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) == 0 {
+		t.Fatal("expected at least 1 item")
+	}
+	if cartResp.Data.Items[0].Stock != 42 {
+		t.Errorf("expected stock 42 from catalog mock, got %d", cartResp.Data.Items[0].Stock)
+	}
+	if cartResp.Data.Items[0].Status != "active" {
+		t.Errorf("expected status 'active' from catalog mock, got '%s'", cartResp.Data.Items[0].Status)
+	}
+}
+
+// TestAddToCart_CatalogDown verifies that a POST /cart/{userId}/items returns 503
+// when the catalog service is unreachable.
+func TestAddToCart_CatalogDown(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidAddCatalogDown) })
+
+	// Start and immediately close the server — simulates catalog being down.
+	downSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	downSrv.Close()
+
+	r := setupRouterWithCatalogURL(downSrv.URL)
+
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/cart/%d/items", uidAddCatalogDown),
+		bytes.NewBufferString(`{"productId": 1}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when catalog is down, got %d — body: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Middleware tests
 // ---------------------------------------------------------------------------
 
@@ -478,7 +728,8 @@ func TestTotalPriceCalculation(t *testing.T) {
 func TestContentTypeMiddleware(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidContentType) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidContentType),
 		bytes.NewBufferString(`{"productId":1}`))
@@ -515,7 +766,9 @@ func TestContentTypeMiddleware(t *testing.T) {
 
 // TestLivezAlwaysOK verifies /livez always returns 200 with {"status":"ok"}.
 func TestLivezAlwaysOK(t *testing.T) {
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -530,7 +783,9 @@ func TestLivezAlwaysOK(t *testing.T) {
 
 // TestReadyzWithDB verifies /readyz returns 200 when MongoDB is connected.
 func TestReadyzWithDB(t *testing.T) {
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -546,7 +801,9 @@ func TestReadyzWithDB(t *testing.T) {
 
 // TestInvalidUserID verifies that non-integer or zero userId returns 400.
 func TestInvalidUserID(t *testing.T) {
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	cases := []string{"/cart/abc", "/cart/0", "/cart/-1"}
 	for _, path := range cases {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -562,7 +819,9 @@ func TestInvalidUserID(t *testing.T) {
 func TestAddItem_MissingProductId(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidMissingProd) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidMissingProd),
 		bytes.NewBufferString(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -578,7 +837,9 @@ func TestAddItem_MissingProductId(t *testing.T) {
 func TestAddItem_InvalidProductIdType(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidInvalidType) })
 
-	r := setupRouter()
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidInvalidType),
 		bytes.NewBufferString(`{"productId": true}`))
 	req.Header.Set("Content-Type", "application/json")
