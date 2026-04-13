@@ -1,7 +1,11 @@
 package service
 
 import (
+	"errors"
+
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/repository"
+	"go.uber.org/zap"
 )
 
 // CartRepositoryI defines the persistence contract for the cart service.
@@ -10,6 +14,9 @@ import (
 type CartRepositoryI interface {
 	GetCartByUserID(userID int) (*models.Cart, error)
 	AddItem(userID int, item *models.CartItem) error
+	IncrementItem(userID int, productID int, delta int) error
+	DecrementItem(userID int, productID int, delta int) error
+	UpdateStockStatus(userID int, updates []repository.StockUpdate) error
 	RemoveItem(userID int, productID int) error
 	ClearCart(userID int) error
 }
@@ -28,10 +35,47 @@ func NewCartService(cartRepo CartRepositoryI, catalogClient CatalogClientI) *Car
 	}
 }
 
-// GetCartByUserID retrieves the cart for a given user.
-// An unknown userId returns an empty cart (no error), as per the OpenAPI spec.
+// GetCartByUserID retrieves the cart for a given user and synchronizes the
+// stock and status of each item with the Catalog service.
+// If the Catalog is unavailable, the cart is returned with the last cached values
+// (no error is propagated — the failure is logged and silently skipped).
 func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
-	return s.CartRepository.GetCartByUserID(userID)
+	cart, err := s.CartRepository.GetCartByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sync stock/status for each item. Best-effort: skip on catalog failure.
+	if len(cart.Items) > 0 {
+		var updates []repository.StockUpdate
+		for _, item := range cart.Items {
+			product, err := s.CatalogClient.GetProduct(item.ProductID)
+			if err != nil {
+				zap.S().Warnw("Catalog unavailable during stock sync; using cached values",
+					"userID", userID, "productID", item.ProductID, "error", err)
+				// Skip this item — keep cached value.
+				continue
+			}
+			updates = append(updates, repository.StockUpdate{
+				ProductID: item.ProductID,
+				Stock:     product.Stock,
+				Status:    product.Status,
+			})
+		}
+		if len(updates) > 0 {
+			if err := s.CartRepository.UpdateStockStatus(userID, updates); err != nil {
+				zap.S().Errorw("Failed to persist stock/status update", "userID", userID, "error", err)
+			} else {
+				// Re-fetch to return the freshly updated cart.
+				cart, err = s.CartRepository.GetCartByUserID(userID)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	return cart, nil
 }
 
 // ClearCart removes all items from the user's cart.
@@ -41,8 +85,8 @@ func (s *CartService) ClearCart(userID int) error {
 }
 
 // AddToCart adds a product to the user's cart (or increments its quantity).
-// It fetches the current price and title from the Catalog service and persists them
-// as an immutable snapshot on first add; subsequent adds simply increment quantity.
+// It fetches the current price, title, stock and status from the Catalog service
+// and stores them in the CartItem.
 //
 // Returns:
 //   - ErrProductNotFound if the catalog returns 404.
@@ -53,11 +97,39 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 		return err
 	}
 
-	// Persist immutable snapshots of the product's title and price at this moment.
+	// Persist immutable snapshots of title and price, plus live stock/status.
 	item.Title = product.Title
 	item.UnitPrice = product.Price
+	item.Stock = product.Stock
+	item.Status = product.Status
+	item.Quantity = 1 // default quantity on add
 
 	return s.CartRepository.AddItem(userID, item)
+}
+
+// IncrementItem increases the quantity of an existing cart item by qty.
+// Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
+func (s *CartService) IncrementItem(userID int, productID int, qty int) error {
+	if err := s.CartRepository.IncrementItem(userID, productID, qty); err != nil {
+		if errors.Is(err, repository.ErrCartItemNotFound) {
+			return repository.ErrCartItemNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+// DecrementItem decreases the quantity of an existing cart item by qty.
+// If the resulting quantity would be <= 0, the item is removed from the cart.
+// Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
+func (s *CartService) DecrementItem(userID int, productID int, qty int) error {
+	if err := s.CartRepository.DecrementItem(userID, productID, qty); err != nil {
+		if errors.Is(err, repository.ErrCartItemNotFound) {
+			return repository.ErrCartItemNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 // RemoveFromCart removes the product entry from the user's cart.
