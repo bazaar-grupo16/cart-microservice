@@ -17,6 +17,8 @@ type CartItem struct {
 	Title     string `bson:"title"     json:"title"`
 	UnitPrice Price  `bson:"unitPrice" json:"unitPrice"`
 	Quantity  int    `bson:"quantity"  json:"quantity"`
+	Stock     int    `bson:"stock"     json:"stock"`
+	Status    string `bson:"status"    json:"status"`
 	AddedAt   string `bson:"addedAt"   json:"addedAt"`
 }
 

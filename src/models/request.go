@@ -6,3 +6,10 @@ package models
 type AddCartRequest struct {
 	ProductID int `json:"productId" binding:"required,min=1"`
 }
+
+// QuantityRequest is the request body for PUT /cart/{userId}/{productId}/increment
+// and PUT /cart/{userId}/{productId}/decrement.
+// Quantity must be a positive integer.
+type QuantityRequest struct {
+	Quantity int `json:"quantity" binding:"required,min=1"`
+}
