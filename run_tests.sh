@@ -3,7 +3,7 @@ set -e
 
 # First run the database container
 echo "Starting test database container..."
-docker compose -f docker-compose.test.yml up -d postgres
+docker compose -f docker-compose.test.yml up -d mongo-test
 
 echo "Waiting for database to be ready..."
 # The test service has a depends_on with service_healthy for postgres,
