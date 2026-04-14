@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/repository"
 	"github.com/bazaar-grupo16/cart-microservice/src/service"
 	"github.com/bazaar-grupo16/cart-microservice/src/utils"
 	"github.com/gin-gonic/gin"
@@ -98,6 +99,10 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		zap.S().Warnw("Catalog service unavailable when adding to cart", "userID", userID, "productID", req.ProductID)
 		utils.ProblemJSON(ctx, http.StatusServiceUnavailable, "Catalog Unavailable",
 			"The catalog service is temporarily unavailable. Please try again later.", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrInsufficientStock):
+		zap.S().Debugw("Insufficient stock", "userID", userID, "productID", req.ProductID)
+		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",
+			"The requested quantity exceeds available stock", ctx.Request.URL.String())
 	case err != nil:
 		zap.S().Errorw("Unexpected error adding item to cart", "userID", userID, "productID", req.ProductID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error",
@@ -154,14 +159,22 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 	}
 
 	err := c.CartService.IncrementItem(userID, productID, req.Quantity)
-	if err != nil {
-		zap.S().Errorw("Failed to increment cart item", "userID", userID, "productID", productID, "error", err)
+	switch {
+	case errors.Is(err, repository.ErrCartItemNotFound):
+		zap.S().Debugw("Cart item not found for increment", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
 			"Could not find the requested product in this user's cart", ctx.Request.URL.String())
-		return
+	case errors.Is(err, service.ErrInsufficientStock):
+		zap.S().Debugw("Insufficient stock for increment", "userID", userID, "productID", productID)
+		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",
+			"The requested quantity exceeds available stock", ctx.Request.URL.String())
+	case err != nil:
+		zap.S().Errorw("Failed to increment cart item", "userID", userID, "productID", productID, "error", err)
+		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error",
+			"Could not increment the cart item at this time", ctx.Request.URL.String())
+	default:
+		ctx.Status(http.StatusNoContent)
 	}
-
-	ctx.Status(http.StatusNoContent)
 }
 
 // DecrementItem handles PUT /cart/:user_id/:product_id/decrement.
@@ -181,12 +194,16 @@ func (c *CartController) DecrementItem(ctx *gin.Context) {
 	}
 
 	err := c.CartService.DecrementItem(userID, productID, req.Quantity)
-	if err != nil {
-		zap.S().Errorw("Failed to decrement cart item", "userID", userID, "productID", productID, "error", err)
+	switch {
+	case errors.Is(err, repository.ErrCartItemNotFound):
+		zap.S().Debugw("Cart item not found for decrement", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
 			"Could not find the requested product in this user's cart", ctx.Request.URL.String())
-		return
+	case err != nil:
+		zap.S().Errorw("Failed to decrement cart item", "userID", userID, "productID", productID, "error", err)
+		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error",
+			"Could not decrement the cart item at this time", ctx.Request.URL.String())
+	default:
+		ctx.Status(http.StatusNoContent)
 	}
-
-	ctx.Status(http.StatusNoContent)
 }

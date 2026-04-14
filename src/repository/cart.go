@@ -75,6 +75,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 			{Key: "$set", Value: bson.D{
 				{Key: "items.$.stock", Value: item.Stock},
 				{Key: "items.$.status", Value: item.Status},
+				{Key: "items.$.unitPrice", Value: item.UnitPrice},
 			}},
 		},
 	)
@@ -101,7 +102,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 // IncrementItem increments the quantity of an existing cart item by delta.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) IncrementItem(userID int, productID int, delta int) error {
+func (r *CartRepository) IncrementItem(userID int, productID int, delta int, update ProductUpdate) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -113,6 +114,11 @@ func (r *CartRepository) IncrementItem(userID int, productID int, delta int) err
 		},
 		bson.D{
 			{Key: "$inc", Value: bson.D{{Key: "items.$.quantity", Value: delta}}},
+			{Key: "$set", Value: bson.D{
+				{Key: "items.$.stock", Value: update.Stock},
+				{Key: "items.$.status", Value: update.Status},
+				{Key: "items.$.unitPrice", Value: update.UnitPrice},
+			}},
 		},
 	)
 	if err != nil {
@@ -126,9 +132,9 @@ func (r *CartRepository) IncrementItem(userID int, productID int, delta int) err
 }
 
 // DecrementItem decrements the quantity of an existing cart item by delta.
-// If the resulting quantity is <= 0, the item is removed from the cart entirely.
+// The quantity is prevented from falling below 1.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) DecrementItem(userID int, productID int, delta int) error {
+func (r *CartRepository) DecrementItem(userID int, productID int, delta int, update ProductUpdate) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -160,36 +166,31 @@ func (r *CartRepository) DecrementItem(userID int, productID int, delta int) err
 
 	newQuantity := currentQty - delta
 
-	if newQuantity <= 0 {
-		// Remove the item entirely.
-		_, err := r.col.UpdateOne(
-			ctx,
-			bson.D{{Key: "userId", Value: userID}},
-			bson.D{{Key: "$pull", Value: bson.D{
-				{Key: "items", Value: bson.D{{Key: "productId", Value: productID}}},
-			}}},
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		// Set the new quantity.
-		result, err := r.col.UpdateOne(
-			ctx,
-			bson.D{
-				{Key: "userId", Value: userID},
-				{Key: "items.productId", Value: productID},
-			},
-			bson.D{
-				{Key: "$set", Value: bson.D{{Key: "items.$.quantity", Value: newQuantity}}},
-			},
-		)
-		if err != nil {
-			return err
-		}
-		if result.ModifiedCount == 0 {
-			return ErrCartItemNotFound
-		}
+	if newQuantity < 1 {
+		newQuantity = 1
+	}
+
+	// Set the new quantity and sync metadata.
+	result, err := r.col.UpdateOne(
+		ctx,
+		bson.D{
+			{Key: "userId", Value: userID},
+			{Key: "items.productId", Value: productID},
+		},
+		bson.D{
+			{Key: "$set", Value: bson.D{
+				{Key: "items.$.quantity", Value: newQuantity},
+				{Key: "items.$.stock", Value: update.Stock},
+				{Key: "items.$.status", Value: update.Status},
+				{Key: "items.$.unitPrice", Value: update.UnitPrice},
+			}},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if result.ModifiedCount == 0 {
+		return ErrCartItemNotFound
 	}
 
 	return r.recalcTotalPrice(ctx, userID)

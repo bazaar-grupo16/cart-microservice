@@ -8,14 +8,16 @@ import (
 	"go.uber.org/zap"
 )
 
+var ErrInsufficientStock = errors.New("insufficient stock")
+
 // CartRepositoryI defines the persistence contract for the cart service.
 // Using an interface here makes the service layer testable without a real MongoDB
 // instance when only unit-level tests are needed.
 type CartRepositoryI interface {
 	GetCartByUserID(userID int) (*models.Cart, error)
 	AddItem(userID int, item *models.CartItem) error
-	IncrementItem(userID int, productID int, delta int) error
-	DecrementItem(userID int, productID int, delta int) error
+	IncrementItem(userID int, productID int, delta int, update repository.ProductUpdate) error
+	DecrementItem(userID int, productID int, delta int, update repository.ProductUpdate) error
 	UpdateProductSnapshot(userID int, items []models.CartItem, updates []repository.ProductUpdate) error
 	RemoveItem(userID int, productID int) error
 	ClearCart(userID int) error
@@ -98,7 +100,28 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 		return err
 	}
 
-	// Persist immutable snapshots of title and price, plus live stock/status.
+	if product.Stock < 1 {
+		return ErrInsufficientStock
+	}
+
+	cart, err := s.CartRepository.GetCartByUserID(userID)
+	if err != nil {
+		return err
+	}
+
+	currentQty := 0
+	for _, ci := range cart.Items {
+		if ci.ProductID == item.ProductID {
+			currentQty = ci.Quantity
+			break
+		}
+	}
+
+	if currentQty+1 > product.Stock {
+		return ErrInsufficientStock
+	}
+
+	// Persist snapshots of title and price, plus live stock/status.
 	item.Title = product.Title
 	item.UnitPrice = product.Price
 	item.Stock = product.Stock
@@ -111,7 +134,42 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 // IncrementItem increases the quantity of an existing cart item by qty.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
 func (s *CartService) IncrementItem(userID int, productID int, qty int) error {
-	if err := s.CartRepository.IncrementItem(userID, productID, qty); err != nil {
+	product, err := s.CatalogClient.GetProduct(productID)
+	if err != nil {
+		return err
+	}
+
+	cart, err := s.CartRepository.GetCartByUserID(userID)
+	if err != nil {
+		return err
+	}
+
+	currentQty := 0
+	found := false
+	for _, ci := range cart.Items {
+		if ci.ProductID == productID {
+			currentQty = ci.Quantity
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return repository.ErrCartItemNotFound
+	}
+
+	if currentQty+qty > product.Stock {
+		return ErrInsufficientStock
+	}
+
+	update := repository.ProductUpdate{
+		ProductID: productID,
+		Stock:     product.Stock,
+		Status:    product.Status,
+		UnitPrice: product.Price,
+	}
+
+	if err := s.CartRepository.IncrementItem(userID, productID, qty, update); err != nil {
 		if errors.Is(err, repository.ErrCartItemNotFound) {
 			return repository.ErrCartItemNotFound
 		}
@@ -124,7 +182,19 @@ func (s *CartService) IncrementItem(userID int, productID int, qty int) error {
 // If the resulting quantity would be <= 0, the item is removed from the cart.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
 func (s *CartService) DecrementItem(userID int, productID int, qty int) error {
-	if err := s.CartRepository.DecrementItem(userID, productID, qty); err != nil {
+	product, err := s.CatalogClient.GetProduct(productID)
+	if err != nil {
+		return err
+	}
+
+	update := repository.ProductUpdate{
+		ProductID: productID,
+		Stock:     product.Stock,
+		Status:    product.Status,
+		UnitPrice: product.Price,
+	}
+
+	if err := s.CartRepository.DecrementItem(userID, productID, qty, update); err != nil {
 		if errors.Is(err, repository.ErrCartItemNotFound) {
 			return repository.ErrCartItemNotFound
 		}

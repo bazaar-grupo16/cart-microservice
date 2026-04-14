@@ -175,6 +175,7 @@ const (
 	uidStockSynced     = 1019
 	uidAddCatalogDown  = 1020
 	uidUpdateSnapshot  = 1021
+	uidStockAware      = 1022
 )
 
 // ---------------------------------------------------------------------------
@@ -617,9 +618,9 @@ func TestDecrementItem(t *testing.T) {
 	}
 }
 
-// TestDecrementItemRemovesWhenZero verifies that decrementing the last unit
-// of an item removes it entirely from the cart.
-func TestDecrementItemRemovesWhenZero(t *testing.T) {
+// TestDecrementItemStopsAtOne verifies that decrementing the last unit
+// of an item keeps it in the cart with quantity 1.
+func TestDecrementItemStopsAtOne(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidDecrementToZero) })
 
 	r, srv := setupRouter(t)
@@ -628,7 +629,7 @@ func TestDecrementItemRemovesWhenZero(t *testing.T) {
 	// Add once → quantity = 1.
 	helperAddItemToCart(r, t, uidDecrementToZero)
 
-	// Decrement by 1 → quantity becomes 0 → item should be removed.
+	// Decrement by 1 → quantity should stay at 1.
 	body := `{"quantity": 1}`
 	req := httptest.NewRequest(http.MethodPut,
 		fmt.Sprintf("/cart/%d/1/decrement", uidDecrementToZero),
@@ -647,14 +648,18 @@ func TestDecrementItemRemovesWhenZero(t *testing.T) {
 
 	var cartResp struct {
 		Data struct {
-			Items []interface{} `json:"items"`
+			Items []struct {
+				Quantity int `json:"quantity"`
+			} `json:"items"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(wGet.Body.Bytes(), &cartResp); err != nil {
 		t.Fatalf("failed to parse cart response: %v", err)
 	}
-	if len(cartResp.Data.Items) != 0 {
-		t.Errorf("expected 0 items after decrement to zero, got %d", len(cartResp.Data.Items))
+	if len(cartResp.Data.Items) != 1 {
+		t.Errorf("expected 1 item after decrementing at 1, got %d", len(cartResp.Data.Items))
+	} else if cartResp.Data.Items[0].Quantity != 1 {
+		t.Errorf("expected quantity 1, got %d", cartResp.Data.Items[0].Quantity)
 	}
 }
 
@@ -967,6 +972,118 @@ func TestUpdateProductSnapshot(t *testing.T) {
 		t.Errorf("stale price: expected status to sync to 'out_of_stock', got '%s'", item.Status)
 	}
 }
+
+// TestStockAwareQuantity verifies that:
+// 1. Adding/incrementing beyond catalog stock fails with 422.
+// 2. Decrementing stops at quantity 1 (doesn't remove item).
+// 3. Every quantity change syncs price, stock and status from catalog.
+func TestStockAwareQuantity(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidStockAware) })
+
+	var (
+		priceVal  = "10.00"
+		stockVal  = 5
+		statusVal = "active"
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+			"data": {
+				"id": 1,
+				"title": "Stock Product",
+				"price": "%s",
+				"stock": %d,
+				"status": "%s"
+			}
+		}`, priceVal, stockVal, statusVal)
+	})
+	catalogSrv := httptest.NewServer(mux)
+	defer catalogSrv.Close()
+
+	r := buildRouter(catalogSrv.URL)
+
+	// 1. Initial add - stock is 5.
+	helperAddItemToCart(r, t, uidStockAware)
+
+	// 2. Add units until stock is reached (total 5).
+	for i := 0; i < 4; i++ {
+		helperAddItemToCart(r, t, uidStockAware)
+	}
+
+	// 3. Try one more unit beyond stock (total 6 > 5) -> 422.
+	body := `{"productId": 1}`
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidStockAware), bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for stock exceeded on add, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	// 4. Try to increment beyond stock -> 422.
+	incrBody := `{"quantity": 1}`
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/increment", uidStockAware), bytes.NewBufferString(incrBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for increment beyond stock, got %d", w.Code)
+	}
+
+	// 5. Increase stock in catalog and test sync on increment.
+	priceVal = "12.00"
+	stockVal = 10
+	statusVal = "active"
+
+	// Current quantity is 5. Stock is now 10. Increment by 1.
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/increment", uidStockAware), bytes.NewBufferString(incrBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for valid increment, got %d", w.Code)
+	}
+
+	// Verify sync.
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidStockAware), nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, getReq)
+	if !bytes.Contains(wGet.Body.Bytes(), []byte(`"value":"12.00"`)) {
+		t.Errorf("expected price sync to 12.00, got: %s", wGet.Body.String())
+	}
+	if !bytes.Contains(wGet.Body.Bytes(), []byte(`"stock":10`)) {
+		t.Errorf("expected stock sync to 10, got: %s", wGet.Body.String())
+	}
+
+	// 6. Sync on decrement and minimum quantity 1.
+	priceVal = "8.00"
+	statusVal = "on_sale"
+
+	// Decrement by 10 (current is 6). Result should be 1.
+	decrBody := `{"quantity": 10}`
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/decrement", uidStockAware), bytes.NewBufferString(decrBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for decrement, got %d", w.Code)
+	}
+
+	// Verify quantity is 1 and price/status synced.
+	wSync := httptest.NewRecorder()
+	r.ServeHTTP(wSync, getReq)
+	if !bytes.Contains(wSync.Body.Bytes(), []byte(`"quantity":1`)) {
+		t.Errorf("expected quantity to be 1, got: %s", wSync.Body.String())
+	}
+	if !bytes.Contains(wSync.Body.Bytes(), []byte(`"value":"8.00"`)) {
+		t.Errorf("expected price sync to 8.00, got: %s", wSync.Body.String())
+	}
+	if !bytes.Contains(wSync.Body.Bytes(), []byte(`"status":"on_sale"`)) {
+		t.Errorf("expected status sync to 'on_sale', got: %s", wSync.Body.String())
+	}
+}
+
 
 
 
