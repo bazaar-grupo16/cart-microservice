@@ -14,12 +14,13 @@ import (
 // ErrCartItemNotFound is returned when the requested product is not in the user's cart.
 var ErrCartItemNotFound = errors.New("cart item not found for this user")
 
-// StockUpdate carries catalog-fresh stock and status for a single product,
+// ProductUpdate carries catalog-fresh stock and status for a single product,
 // used by UpdateStockStatus to patch cart items atomically.
-type StockUpdate struct {
+type ProductUpdate struct {
 	ProductID int
 	Stock     int
 	Status    string
+	UnitPrice models.Price
 }
 
 // CartRepository encapsulates all MongoDB operations for cart documents.
@@ -194,9 +195,14 @@ func (r *CartRepository) DecrementItem(userID int, productID int, delta int) err
 	return r.recalcTotalPrice(ctx, userID)
 }
 
-// UpdateStockStatus patches the stock and status fields for each listed product
+// UpdateProductSnapshot patches the stock and status fields for each listed product
 // in the user's cart using positional arrayFilters for atomic multi-field updates.
-func (r *CartRepository) UpdateStockStatus(userID int, updates []StockUpdate) error {
+// Also updates the price if the price snapshot is stale.
+// Precondition:
+//   - items and updates must have the same length.
+//   - updates must be ordered in the same order as items.
+//   - updates[i].ProductID must match items[i].ProductID.
+func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartItem, updates []ProductUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -204,22 +210,46 @@ func (r *CartRepository) UpdateStockStatus(userID int, updates []StockUpdate) er
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	for _, u := range updates {
-		_, err := r.col.UpdateOne(
-			ctx,
-			bson.D{
-				{Key: "userId", Value: userID},
-				{Key: "items.productId", Value: u.ProductID},
-			},
-			bson.D{
-				{Key: "$set", Value: bson.D{
-					{Key: "items.$.stock", Value: u.Stock},
-					{Key: "items.$.status", Value: u.Status},
-				}},
-			},
-		)
-		if err != nil {
-			return err
+	for i, u := range updates {
+		// TODO: Check if the price is stale and update it if it is.
+		switch items[i].UnitPrice.IsPriceStale() {
+		case true:
+			_, err := r.col.UpdateOne(
+				ctx,
+				bson.D{
+					{Key: "userId", Value: userID},
+					{Key: "items.productId", Value: u.ProductID},
+				},
+				bson.D{
+					{Key: "$set", Value: bson.D{
+						{Key: "items.$.stock", Value: u.Stock},
+						{Key: "items.$.status", Value: u.Status},
+						{Key: "items.$.unitPrice", Value: u.UnitPrice},
+					}},
+				},
+			)
+			if err != nil {
+				return err
+			}
+		case false:
+			_, err := r.col.UpdateOne(
+				ctx,
+				bson.D{
+					{Key: "userId", Value: userID},
+					{Key: "items.productId", Value: u.ProductID},
+				},
+				bson.D{
+					{Key: "$set", Value: bson.D{
+						{Key: "items.$.stock", Value: u.Stock},
+						{Key: "items.$.status", Value: u.Status},
+					}},
+				},
+			)
+			if err != nil {
+				return err
+			}
+		default:
+			return errors.New("unexpected error")
 		}
 	}
 	return nil
@@ -260,7 +290,7 @@ func (r *CartRepository) ClearCart(userID int) error {
 		bson.D{{Key: "userId", Value: userID}},
 		bson.D{{Key: "$set", Value: bson.D{
 			{Key: "items", Value: bson.A{}},
-			{Key: "totalPrice", Value: "0.00"},
+			{Key: "totalPrice", Value: models.NewPrice("0.00")},
 		}}},
 		options.UpdateOne().SetUpsert(true),
 	)
@@ -276,23 +306,17 @@ func (r *CartRepository) recalcTotalPrice(ctx context.Context, userID int) error
 		return err
 	}
 
-	total := models.Price("0.00")
+	total := models.NewPrice("0.00")
 	for _, item := range cart.Items {
 		for range item.Quantity {
 			total = total.Add(item.UnitPrice)
 		}
 	}
 
-	// Marshal to the canonical "X.YY" string before persisting.
-	totalBytes, err := total.MarshalJSON()
-	if err != nil {
-		return err
-	}
-
 	_, err = r.col.UpdateOne(
 		ctx,
 		bson.D{{Key: "userId", Value: userID}},
-		bson.D{{Key: "$set", Value: bson.D{{Key: "totalPrice", Value: string(totalBytes)}}}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "totalPrice", Value: total}}}},
 	)
 	return err
 }

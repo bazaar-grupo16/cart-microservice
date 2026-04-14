@@ -13,23 +13,21 @@ type Cart struct {
 // Quantity tracks how many units of that product are in the cart.
 // UnitPrice is an immutable snapshot captured when the item was first added.
 type CartItem struct {
-	ProductID int    `bson:"productId" json:"productId"`
-	Title     string `bson:"title"     json:"title"`
-	UnitPrice Price  `bson:"unitPrice" json:"unitPrice"`
-	Quantity  int    `bson:"quantity"  json:"quantity"`
-	Stock     int    `bson:"stock"     json:"stock"`
-	Status    string `bson:"status"    json:"status"`
-	AddedAt   string `bson:"addedAt"   json:"addedAt"`
+	ProductID      int    `bson:"productId" json:"productId"`
+	Title          string `bson:"title"     json:"title"`
+	UnitPrice      Price  `bson:"unitPrice" json:"unitPrice"`
+	Quantity       int    `bson:"quantity"  json:"quantity"`
+	Stock          int    `bson:"stock"     json:"stock"`
+	Status         string `bson:"status"    json:"status"`
+	AddedAt        string `bson:"addedAt"   json:"addedAt"`
 }
 
 // NewCart creates a Cart instance for a given user with the provided items and
 // calculates the total price as the sum of (unitPrice × quantity) for every item.
 func NewCart(userID int, items []CartItem) *Cart {
-	total := Price("0.00")
+	total := NewPrice("0.00")
 	for _, item := range items {
-		for range item.Quantity {
-			total = total.Add(item.UnitPrice)
-		}
+		total = total.Add(item.UnitPrice.Multiply(item.Quantity))
 	}
 
 	// Always return an initialised slice so the JSON output is [] not null.

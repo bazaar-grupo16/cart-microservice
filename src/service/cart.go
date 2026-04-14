@@ -16,7 +16,7 @@ type CartRepositoryI interface {
 	AddItem(userID int, item *models.CartItem) error
 	IncrementItem(userID int, productID int, delta int) error
 	DecrementItem(userID int, productID int, delta int) error
-	UpdateStockStatus(userID int, updates []repository.StockUpdate) error
+	UpdateProductSnapshot(userID int, items []models.CartItem, updates []repository.ProductUpdate) error
 	RemoveItem(userID int, productID int) error
 	ClearCart(userID int) error
 }
@@ -47,7 +47,7 @@ func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
 
 	// Sync stock/status for each item. Best-effort: skip on catalog failure.
 	if len(cart.Items) > 0 {
-		var updates []repository.StockUpdate
+		var updates []repository.ProductUpdate
 		for _, item := range cart.Items {
 			product, err := s.CatalogClient.GetProduct(item.ProductID)
 			if err != nil {
@@ -56,14 +56,15 @@ func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
 				// Skip this item — keep cached value.
 				continue
 			}
-			updates = append(updates, repository.StockUpdate{
+			updates = append(updates, repository.ProductUpdate{
 				ProductID: item.ProductID,
 				Stock:     product.Stock,
 				Status:    product.Status,
+				UnitPrice: product.Price,
 			})
 		}
 		if len(updates) > 0 {
-			if err := s.CartRepository.UpdateStockStatus(userID, updates); err != nil {
+			if err := s.CartRepository.UpdateProductSnapshot(userID, cart.Items, updates); err != nil {
 				zap.S().Errorw("Failed to persist stock/status update", "userID", userID, "error", err)
 			} else {
 				// Re-fetch to return the freshly updated cart.

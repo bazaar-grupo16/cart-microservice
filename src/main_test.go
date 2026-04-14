@@ -154,26 +154,27 @@ func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) {
 // ---------------------------------------------------------------------------
 
 const (
-	uidGetEmpty           = 1001
-	uidGetCart            = 1002
-	uidAdd                = 1003
-	uidNotFound           = 1004
-	uidUnavailable        = 1005
-	uidClear              = 1006
-	uidRemove             = 1007
-	uidRemoveWrong        = 1008
-	uidTotalPrice         = 1009
-	uidContentType        = 1010
-	uidLivez              = 1011
-	uidReadyz             = 1012
-	uidInvalidUser        = 1013
-	uidMissingProd        = 1014
-	uidInvalidType        = 1015
-	uidIncrement          = 1016
-	uidDecrement          = 1017
-	uidDecrementToZero    = 1018
-	uidStockSynced        = 1019
-	uidAddCatalogDown     = 1020
+	uidGetEmpty        = 1001
+	uidGetCart         = 1002
+	uidAdd             = 1003
+	uidNotFound        = 1004
+	uidUnavailable     = 1005
+	uidClear           = 1006
+	uidRemove          = 1007
+	uidRemoveWrong     = 1008
+	uidTotalPrice      = 1009
+	uidContentType     = 1010
+	uidLivez           = 1011
+	uidReadyz          = 1012
+	uidInvalidUser     = 1013
+	uidMissingProd     = 1014
+	uidInvalidType     = 1015
+	uidIncrement       = 1016
+	uidDecrement       = 1017
+	uidDecrementToZero = 1018
+	uidStockSynced     = 1019
+	uidAddCatalogDown  = 1020
+	uidUpdateSnapshot  = 1021
 )
 
 // ---------------------------------------------------------------------------
@@ -200,8 +201,9 @@ func TestGetEmptyCart(t *testing.T) {
 	if !bytes.Contains(w.Body.Bytes(), []byte(`"items":[]`)) {
 		t.Errorf(`expected "items":[], got: %s`, body)
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":0.00`)) {
-		t.Errorf(`expected "totalPrice":0.00, got: %s`, body)
+	// Check for the new struct format
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":{"value":"0.00"`)) {
+		t.Errorf(`expected "totalPrice" with value "0.00", got: %s`, body)
 	}
 }
 
@@ -265,17 +267,20 @@ func TestAddItemToCart(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			ProductID int     `json:"productId"`
-			Title     string  `json:"title"`
-			UnitPrice float64 `json:"unitPrice"`
-			Quantity  int     `json:"quantity"`
-			Stock     int     `json:"stock"`
-			Status    string  `json:"status"`
-			AddedAt   string  `json:"addedAt"`
+			ProductID int    `json:"productId"`
+			Title     string `json:"title"`
+			UnitPrice struct {
+				Value     string `json:"value"`
+				UpdatedAt string `json:"updatedAt"`
+			} `json:"unitPrice"`
+			Quantity int    `json:"quantity"`
+			Stock    int    `json:"stock"`
+			Status   string `json:"status"`
+			AddedAt  string `json:"addedAt"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
+		t.Fatalf("failed to parse response: %v — body: %s", err, w.Body.String())
 	}
 
 	item := resp.Data
@@ -285,8 +290,11 @@ func TestAddItemToCart(t *testing.T) {
 	if item.Title != "Test Product" {
 		t.Errorf("expected title 'Test Product', got '%s'", item.Title)
 	}
-	if item.UnitPrice != 9.99 {
-		t.Errorf("expected unitPrice 9.99, got %v", item.UnitPrice)
+	if item.UnitPrice.Value != "9.99" {
+		t.Errorf("expected unitPrice value '9.99', got %v", item.UnitPrice.Value)
+	}
+	if item.UnitPrice.UpdatedAt == "" {
+		t.Error("expected unitPrice.updatedAt to be populated")
 	}
 	if item.Quantity != 1 {
 		t.Errorf("expected quantity 1 on first add, got %d", item.Quantity)
@@ -505,8 +513,8 @@ func TestTotalPriceCalculation(t *testing.T) {
 
 	body := w.Body.String()
 	// 3 × 9.99 = 29.97
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":29.97`)) {
-		t.Errorf("expected totalPrice 29.97, got: %s", body)
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"totalPrice":{"value":"29.97"`)) {
+		t.Errorf("expected totalPrice value 29.97, got: %s", body)
 	}
 }
 
@@ -850,6 +858,117 @@ func TestAddItem_InvalidProductIdType(t *testing.T) {
 		t.Errorf("expected 400 for boolean productId, got %d", w.Code)
 	}
 }
+
+// TestUpdateProductSnapshot verifies that GET /cart/{userId} synchronizes
+// stock and status every time, but only updates the price if it's stale (>24h).
+func TestUpdateProductSnapshot(t *testing.T) {
+	t.Cleanup(func() { cleanUser(uidUpdateSnapshot) })
+
+	// 1. Setup dynamic catalog mock.
+	var (
+		priceVal  = "10.00"
+		stockVal  = 100
+		statusVal = "active"
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+			"data": {
+				"id": 1,
+				"title": "Snapshot Product",
+				"price": "%s",
+				"stock": %d,
+				"status": "%s"
+			}
+		}`, priceVal, stockVal, statusVal)
+	})
+	catalogSrv := httptest.NewServer(mux)
+	defer catalogSrv.Close()
+
+	r := buildRouter(catalogSrv.URL)
+
+	// 2. Initial add — captures "10.00", 100, "active".
+	helperAddItemToCart(r, t, uidUpdateSnapshot)
+
+	// 3. Scenario: Fresh price (Catalog changes, but cart snapshot is <24h old).
+	priceVal = "15.00"
+	stockVal = 50
+	statusVal = "limited_stock"
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidUpdateSnapshot), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Data struct {
+			Items []struct {
+				UnitPrice struct {
+					Value string `json:"value"`
+				} `json:"unitPrice"`
+				Stock  int    `json:"stock"`
+				Status string `json:"status"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	item := resp.Data.Items[0]
+	if item.UnitPrice.Value != "10.00" {
+		t.Errorf("fresh price: expected captured price '10.00' to remain, got '%s'", item.UnitPrice.Value)
+	}
+	if item.Stock != 50 {
+		t.Errorf("fresh price: expected stock to sync to 50, got %d", item.Stock)
+	}
+	if item.Status != "limited_stock" {
+		t.Errorf("fresh price: expected status to sync to 'limited_stock', got '%s'", item.Status)
+	}
+
+	// 4. Scenario: Stale price (Manually age the snapshot in DB to >24h).
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	staleTime := time.Now().UTC().Add(-25 * time.Hour)
+	_, err := config.CartCollection.UpdateOne(ctx,
+		bson.D{{Key: "userId", Value: uidUpdateSnapshot}, {Key: "items.productId", Value: 1}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "items.$.unitPrice.updatedAt", Value: staleTime}}}},
+	)
+	if err != nil {
+		t.Fatalf("failed to manually age price snapshot: %v", err)
+	}
+
+	// New catalog state (Price changed again).
+	priceVal = "20.00"
+	stockVal = 5
+	statusVal = "out_of_stock"
+
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uidUpdateSnapshot), nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	item = resp.Data.Items[0]
+	if item.UnitPrice.Value != "20.00" {
+		t.Errorf("stale price: expected price to sync to '20.00', got '%s'", item.UnitPrice.Value)
+	}
+	if item.Stock != 5 {
+		t.Errorf("stale price: expected stock to sync to 5, got %d", item.Stock)
+	}
+	if item.Status != "out_of_stock" {
+		t.Errorf("stale price: expected status to sync to 'out_of_stock', got '%s'", item.Status)
+	}
+}
+
+
 
 // ensure time is imported (used implicitly by cleanUser/cleanCollection timeouts).
 var _ = time.Second
