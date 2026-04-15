@@ -5,7 +5,7 @@ package models
 // This struct is used only for deserialization — the cart service does not
 // own or persist products; it reads them transiently to capture snapshots.
 type Product struct {
-	ID     int    `json:"id"`
+	ID     string `json:"id"`
 	Title  string `json:"title"`
 	Price  Price  `json:"price"`
 	Stock  int    `json:"stock"`

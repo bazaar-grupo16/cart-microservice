@@ -13,7 +13,7 @@ type Cart struct {
 // Quantity tracks how many units of that product are in the cart.
 // UnitPrice is an immutable snapshot captured when the item was first added.
 type CartItem struct {
-	ProductID      int    `bson:"productId" json:"productId"`
+	ProductID      string `bson:"productId" json:"productId"`
 	Title          string `bson:"title"     json:"title"`
 	UnitPrice      Price  `bson:"unitPrice" json:"unitPrice"`
 	Quantity       int    `bson:"quantity"  json:"quantity"`

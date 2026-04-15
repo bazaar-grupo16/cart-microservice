@@ -17,7 +17,7 @@ var ErrCartItemNotFound = errors.New("cart item not found for this user")
 // ProductUpdate carries catalog-fresh stock and status for a single product,
 // used by UpdateStockStatus to patch cart items atomically.
 type ProductUpdate struct {
-	ProductID int
+	ProductID string
 	Stock     int
 	Status    string
 	UnitPrice models.Price
@@ -102,7 +102,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 // IncrementItem increments the quantity of an existing cart item by delta.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) IncrementItem(userID int, productID int, delta int, update ProductUpdate) error {
+func (r *CartRepository) IncrementItem(userID int, productID string, delta int, update ProductUpdate) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -134,7 +134,7 @@ func (r *CartRepository) IncrementItem(userID int, productID int, delta int, upd
 // DecrementItem decrements the quantity of an existing cart item by delta.
 // The quantity is prevented from falling below 1.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) DecrementItem(userID int, productID int, delta int, update ProductUpdate) error {
+func (r *CartRepository) DecrementItem(userID int, productID string, delta int, update ProductUpdate) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -259,7 +259,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 // RemoveItem removes the cart entry for the given productId from the user's cart.
 // Returns ErrCartItemNotFound if no such product exists in that user's cart.
 // totalPrice is recalculated and persisted after the removal.
-func (r *CartRepository) RemoveItem(userID int, productID int) error {
+func (r *CartRepository) RemoveItem(userID int, productID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

@@ -85,6 +85,12 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		return
 	}
 
+	if !utils.IsUUID(req.ProductID) {
+		zap.S().Debugw("Invalid product ID format for adding to cart", "id", req.ProductID, "userID", userID)
+		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Product ID", "The provided product identification format is invalid", ctx.Request.URL.String())
+		return
+	}
+
 	item := models.CartItem{
 		ProductID: req.ProductID,
 	}
@@ -124,10 +130,9 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		return
 	}
 
-	strProductId := ctx.Param("cart_item_id")
-	productID, err := strconv.Atoi(strProductId)
-	if err != nil || productID <= 0 {
-		zap.S().Debugw("Invalid product ID format for removing from cart", "id", strProductId, "error", err)
+	productID := ctx.Param("cart_item_id")
+	if !utils.IsUUID(productID) {
+		zap.S().Debugw("Invalid product ID format for removing from cart", "id", productID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid Product ID", "The provided product identification format is invalid", ctx.Request.URL.String())
 		return
 	}

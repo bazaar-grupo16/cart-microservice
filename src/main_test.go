@@ -37,15 +37,15 @@ func newCatalogMockServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{
+		fmt.Fprintf(w, `{
 			"data": {
-				"id": 1,
+				"id": "%s",
 				"title": "Test Product",
 				"price": "9.99",
 				"stock": 42,
 				"status": "active"
 			}
-		}`)
+		}`, testProductID)
 	})
 	return httptest.NewServer(mux)
 }
@@ -132,11 +132,11 @@ func buildRouter(catalogURL string) *gin.Engine {
 	return router.SetupRouter(cartController)
 }
 
-// helperAddItemToCart adds productId=1 to the given user's cart via the HTTP API.
+// helperAddItemToCart adds testProductID to the given user's cart via the HTTP API.
 func helperAddItemToCart(r *gin.Engine, t *testing.T, userID int) {
 	t.Helper()
 
-	body := `{"productId": 1}`
+	body := testProductBody
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/cart/%d/items", userID),
 		bytes.NewBufferString(body))
@@ -176,6 +176,13 @@ const (
 	uidAddCatalogDown  = 1020
 	uidUpdateSnapshot  = 1021
 	uidStockAware      = 1022
+)
+
+const (
+	testProductID         = "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670"
+	testNotFoundProductID = "00000000-0000-0000-0000-000000000000"
+	testProductBody       = `{"productId":"` + testProductID + `"}`
+	testNotFoundBody      = `{"productId":"` + testNotFoundProductID + `"}`
 )
 
 // ---------------------------------------------------------------------------
@@ -230,8 +237,8 @@ func TestGetCart(t *testing.T) {
 	var cartResp struct {
 		Data struct {
 			Items []struct {
-				ProductID int `json:"productId"`
-				Quantity  int `json:"quantity"`
+				ProductID string `json:"productId"`
+				Quantity  int    `json:"quantity"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -254,7 +261,7 @@ func TestAddItemToCart(t *testing.T) {
 	r, srv := setupRouter(t)
 	defer srv.Close()
 
-	body := `{"productId": 1}`
+	body := testProductBody
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/cart/%d/items", uidAdd),
 		bytes.NewBufferString(body))
@@ -268,7 +275,7 @@ func TestAddItemToCart(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			ProductID int    `json:"productId"`
+			ProductID string `json:"productId"`
 			Title     string `json:"title"`
 			UnitPrice struct {
 				Value     string `json:"value"`
@@ -285,8 +292,8 @@ func TestAddItemToCart(t *testing.T) {
 	}
 
 	item := resp.Data
-	if item.ProductID != 1 {
-		t.Errorf("expected productId 1, got %d", item.ProductID)
+	if item.ProductID != testProductID {
+		t.Errorf("expected productId %s, got %s", testProductID, item.ProductID)
 	}
 	if item.Title != "Test Product" {
 		t.Errorf("expected title 'Test Product', got '%s'", item.Title)
@@ -329,8 +336,8 @@ func TestAddSameItemIncrementsQuantity(t *testing.T) {
 	var cartResp struct {
 		Data struct {
 			Items []struct {
-				ProductID int `json:"productId"`
-				Quantity  int `json:"quantity"`
+				ProductID string `json:"productId"`
+				Quantity  int    `json:"quantity"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -355,7 +362,7 @@ func TestAddItemToCart_ProductNotFound(t *testing.T) {
 	r := setupRouterWithCatalogURL(notFoundSrv.URL)
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidNotFound),
-		bytes.NewBufferString(`{"productId": 9999}`))
+		bytes.NewBufferString(testNotFoundBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -380,7 +387,7 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 	r := setupRouterWithCatalogURL(downSrv.URL)
 
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidUnavailable),
-		bytes.NewBufferString(`{"productId": 1}`))
+		bytes.NewBufferString(testProductBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -447,7 +454,7 @@ func TestRemoveItemFromCart(t *testing.T) {
 
 	// Remove by productId.
 	delReq := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/cart/%d/items/%d", uidRemove, 1), nil)
+		fmt.Sprintf("/cart/%d/items/%s", uidRemove, testProductID), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, delReq)
 	if w.Code != http.StatusNoContent {
@@ -486,7 +493,7 @@ func TestRemoveItemFromCart_WrongUser(t *testing.T) {
 
 	// Try to delete it as uidRemoveWrong+1 (a different user who has no cart).
 	delReq := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/cart/%d/items/%d", uidRemoveWrong+1, 1), nil)
+		fmt.Sprintf("/cart/%d/items/%s", uidRemoveWrong+1, testProductID), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, delReq)
 
@@ -537,7 +544,7 @@ func TestIncrementItem(t *testing.T) {
 	// Increment by 3.
 	body := `{"quantity": 3}`
 	req := httptest.NewRequest(http.MethodPut,
-		fmt.Sprintf("/cart/%d/1/increment", uidIncrement),
+		fmt.Sprintf("/cart/%d/%s/increment", uidIncrement, testProductID),
 		bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -555,8 +562,8 @@ func TestIncrementItem(t *testing.T) {
 	var cartResp struct {
 		Data struct {
 			Items []struct {
-				ProductID int `json:"productId"`
-				Quantity  int `json:"quantity"`
+				ProductID string `json:"productId"`
+				Quantity  int    `json:"quantity"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -586,7 +593,7 @@ func TestDecrementItem(t *testing.T) {
 	// Decrement by 1 → expected quantity = 1.
 	body := `{"quantity": 1}`
 	req := httptest.NewRequest(http.MethodPut,
-		fmt.Sprintf("/cart/%d/1/decrement", uidDecrement),
+		fmt.Sprintf("/cart/%d/%s/decrement", uidDecrement, testProductID),
 		bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -632,7 +639,7 @@ func TestDecrementItemStopsAtOne(t *testing.T) {
 	// Decrement by 1 → quantity should stay at 1.
 	body := `{"quantity": 1}`
 	req := httptest.NewRequest(http.MethodPut,
-		fmt.Sprintf("/cart/%d/1/decrement", uidDecrementToZero),
+		fmt.Sprintf("/cart/%d/%s/decrement", uidDecrementToZero, testProductID),
 		bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -722,7 +729,7 @@ func TestAddToCart_CatalogDown(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost,
 		fmt.Sprintf("/cart/%d/items", uidAddCatalogDown),
-		bytes.NewBufferString(`{"productId": 1}`))
+		bytes.NewBufferString(testProductBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -880,13 +887,13 @@ func TestUpdateProductSnapshot(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{
 			"data": {
-				"id": 1,
+				"id": "%s",
 				"title": "Snapshot Product",
 				"price": "%s",
 				"stock": %d,
 				"status": "%s"
 			}
-		}`, priceVal, stockVal, statusVal)
+		}`, testProductID, priceVal, stockVal, statusVal)
 	})
 	catalogSrv := httptest.NewServer(mux)
 	defer catalogSrv.Close()
@@ -941,7 +948,7 @@ func TestUpdateProductSnapshot(t *testing.T) {
 
 	staleTime := time.Now().UTC().Add(-25 * time.Hour)
 	_, err := config.CartCollection.UpdateOne(ctx,
-		bson.D{{Key: "userId", Value: uidUpdateSnapshot}, {Key: "items.productId", Value: 1}},
+		bson.D{{Key: "userId", Value: uidUpdateSnapshot}, {Key: "items.productId", Value: testProductID}},
 		bson.D{{Key: "$set", Value: bson.D{{Key: "items.$.unitPrice.updatedAt", Value: staleTime}}}},
 	)
 	if err != nil {
@@ -990,13 +997,13 @@ func TestStockAwareQuantity(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{
 			"data": {
-				"id": 1,
+				"id": "%s",
 				"title": "Stock Product",
 				"price": "%s",
 				"stock": %d,
 				"status": "%s"
 			}
-		}`, priceVal, stockVal, statusVal)
+		}`, testProductID, priceVal, stockVal, statusVal)
 	})
 	catalogSrv := httptest.NewServer(mux)
 	defer catalogSrv.Close()
@@ -1012,7 +1019,7 @@ func TestStockAwareQuantity(t *testing.T) {
 	}
 
 	// 3. Try one more unit beyond stock (total 6 > 5) -> 422.
-	body := `{"productId": 1}`
+	body := testProductBody
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/cart/%d/items", uidStockAware), bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1023,7 +1030,7 @@ func TestStockAwareQuantity(t *testing.T) {
 
 	// 4. Try to increment beyond stock -> 422.
 	incrBody := `{"quantity": 1}`
-	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/increment", uidStockAware), bytes.NewBufferString(incrBody))
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/%s/increment", uidStockAware, testProductID), bytes.NewBufferString(incrBody))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1037,7 +1044,7 @@ func TestStockAwareQuantity(t *testing.T) {
 	statusVal = "active"
 
 	// Current quantity is 5. Stock is now 10. Increment by 1.
-	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/increment", uidStockAware), bytes.NewBufferString(incrBody))
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/%s/increment", uidStockAware, testProductID), bytes.NewBufferString(incrBody))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1062,7 +1069,7 @@ func TestStockAwareQuantity(t *testing.T) {
 
 	// Decrement by 10 (current is 6). Result should be 1.
 	decrBody := `{"quantity": 10}`
-	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/1/decrement", uidStockAware), bytes.NewBufferString(decrBody))
+	req = httptest.NewRequest(http.MethodPut, fmt.Sprintf("/cart/%d/%s/decrement", uidStockAware, testProductID), bytes.NewBufferString(decrBody))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -24,7 +25,7 @@ var (
 // CatalogClientI defines the contract for fetching product data from the Catalog service.
 // Using an interface here allows swapping a real HTTP client for a mock in tests.
 type CatalogClientI interface {
-	GetProduct(productID int) (*models.Product, error)
+	GetProduct(productID string) (*models.Product, error)
 }
 
 // CatalogClient is the production implementation of CatalogClientI.
@@ -54,7 +55,7 @@ func NewCatalogClient(baseURL string) *CatalogClient {
 // GetProduct fetches a product by ID from the Catalog microservice.
 // Returns ErrProductNotFound when the catalog responds 404.
 // Returns ErrCatalogUnavailable on any other failure (timeout, circuit open, 5xx, etc.).
-func (c *CatalogClient) GetProduct(productID int) (*models.Product, error) {
+func (c *CatalogClient) GetProduct(productID string) (*models.Product, error) {
 	// --- Circuit Breaker: check state ---
 	c.mu.Lock()
 	if c.circuitOpen {
@@ -71,11 +72,12 @@ func (c *CatalogClient) GetProduct(productID int) (*models.Product, error) {
 	c.mu.Unlock()
 
 	// --- Execute HTTP request ---
-	url := fmt.Sprintf("%s/products/%d", c.BaseURL, productID)
-	resp, err := c.HTTPClient.Get(url)
+	productIDPath := url.PathEscape(productID)
+	catalogURL := fmt.Sprintf("%s/products/%s", c.BaseURL, productIDPath)
+	resp, err := c.HTTPClient.Get(catalogURL)
 	if err != nil {
 		c.recordFailure()
-		zap.S().Errorw("Catalog HTTP request failed", "url", url, "error", err)
+		zap.S().Errorw("Catalog HTTP request failed", "url", catalogURL, "error", err)
 		return nil, ErrCatalogUnavailable
 	}
 	defer resp.Body.Close()
@@ -100,7 +102,7 @@ func (c *CatalogClient) GetProduct(productID int) (*models.Product, error) {
 
 	default:
 		c.recordFailure()
-		zap.S().Warnw("Catalog returned unexpected status", "status", resp.StatusCode, "url", url)
+		zap.S().Warnw("Catalog returned unexpected status", "status", resp.StatusCode, "url", catalogURL)
 		return nil, ErrCatalogUnavailable
 	}
 }

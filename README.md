@@ -119,7 +119,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 ```json
 {
-  "productId": 1,
+  "productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670",
   "title": "Test Product",
   "unitPrice": { "value": "9.99", "updatedAt": "2026-04-15T12:34:56Z" },
   "quantity": 1,
@@ -207,14 +207,14 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Request body**:
 
   ```json
-  {"productId": 1}
+  {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670"}
   ```
 
 - **Respuestas**:
   - `201 application/json` → `CartItemResponse`
 
     ```json
-    {"data": {"productId": 1, "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 1, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
+    {"data": {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 1, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
     ```
 
   - `400 application/problem+json` (user_id inválido, JSON inválido o `productId` faltante/incorrecto)
@@ -228,7 +228,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Descripción**: elimina el ítem del carrito por ID de producto del catálogo.
 - **Path params**:
   - `user_id` (integer, `>= 1`)
-  - `cart_item_id` (integer, `>= 1`) — *corresponde a `productId`*
+  - `cart_item_id` (string, UUID) — *corresponde a `productId`*
 - **Respuestas**:
   - `204` (sin body)
   - `400 application/problem+json`
@@ -241,7 +241,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
   - `Content-Type: application/json`
 - **Path params**:
   - `user_id` (integer, `>= 1`)
-  - `product_id` (integer, `>= 1`)
+  - `product_id` (string, UUID)
 - **Request body**:
 
   ```json
@@ -262,7 +262,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
   - `Content-Type: application/json`
 - **Path params**:
   - `user_id` (integer, `>= 1`)
-  - `product_id` (integer, `>= 1`)
+  - `product_id` (string, UUID)
 - **Request body**:
 
   ```json

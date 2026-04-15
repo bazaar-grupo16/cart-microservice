@@ -16,10 +16,10 @@ var ErrInsufficientStock = errors.New("insufficient stock")
 type CartRepositoryI interface {
 	GetCartByUserID(userID int) (*models.Cart, error)
 	AddItem(userID int, item *models.CartItem) error
-	IncrementItem(userID int, productID int, delta int, update repository.ProductUpdate) error
-	DecrementItem(userID int, productID int, delta int, update repository.ProductUpdate) error
+	IncrementItem(userID int, productID string, delta int, update repository.ProductUpdate) error
+	DecrementItem(userID int, productID string, delta int, update repository.ProductUpdate) error
 	UpdateProductSnapshot(userID int, items []models.CartItem, updates []repository.ProductUpdate) error
-	RemoveItem(userID int, productID int) error
+	RemoveItem(userID int, productID string) error
 	ClearCart(userID int) error
 }
 
@@ -133,7 +133,7 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 
 // IncrementItem increases the quantity of an existing cart item by qty.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) IncrementItem(userID int, productID int, qty int) error {
+func (s *CartService) IncrementItem(userID int, productID string, qty int) error {
 	product, err := s.CatalogClient.GetProduct(productID)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (s *CartService) IncrementItem(userID int, productID int, qty int) error {
 // DecrementItem decreases the quantity of an existing cart item by qty.
 // If the resulting quantity would be <= 0, the item is removed from the cart.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) DecrementItem(userID int, productID int, qty int) error {
+func (s *CartService) DecrementItem(userID int, productID string, qty int) error {
 	product, err := s.CatalogClient.GetProduct(productID)
 	if err != nil {
 		return err
@@ -206,6 +206,6 @@ func (s *CartService) DecrementItem(userID int, productID int, qty int) error {
 // RemoveFromCart removes the product entry from the user's cart.
 // Returns an error (propagated from the repository) if the product is not in the cart
 // or does not belong to the given user.
-func (s *CartService) RemoveFromCart(userID int, productID int) error {
+func (s *CartService) RemoveFromCart(userID int, productID string) error {
 	return s.CartRepository.RemoveItem(userID, productID)
 }
