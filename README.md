@@ -78,17 +78,202 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 ## API Endpoints
 
+### Convenciones
+
+- **Base URL**: `http://localhost:<PORT>` (por defecto `8080`).
+- **Content-Type (request)**: para `POST`/`PUT`/`PATCH` el servicio exige `Content-Type: application/json` (se valida por prefijo). Si no se envía, responde **400** en formato Problem Details.
+- **Content-Type (error)**: los errores usan **RFC 7807** con `Content-Type: application/problem+json`.
+- **Envelope de éxito** (endpoints de carrito):
+  - `GET /cart/...` → `{ "data": Cart }`
+  - `POST /cart/.../items` → `{ "data": CartItem }`
+  - Endpoints que devuelven `204 No Content` no retornan body.
+- **Probes** (`/livez`, `/readyz`) no usan envelope `data`.
+
+### Esquemas (aprox. OpenAPI)
+
+#### Problem (RFC 7807)
+
+```json
+{
+  "type": "about:blank",
+  "title": "Invalid Request Payload",
+  "status": 400,
+  "detail": "...",
+  "instance": "/cart/123/items"
+}
+```
+
+#### Price
+
+```json
+{
+  "value": "9.99",
+  "updatedAt": "2026-04-15T12:34:56Z"
+}
+```
+
+- `value`: string decimal con **2** decimales.
+- `updatedAt`: timestamp **RFC 3339** en UTC.
+
+#### CartItem
+
+```json
+{
+  "productId": 1,
+  "title": "Test Product",
+  "unitPrice": { "value": "9.99", "updatedAt": "2026-04-15T12:34:56Z" },
+  "quantity": 1,
+  "stock": 42,
+  "status": "active",
+  "addedAt": "2026-04-15T12:34:56Z"
+}
+```
+
+#### Cart
+
+```json
+{
+  "userId": 1001,
+  "items": [/* CartItem */],
+  "totalPrice": { "value": "29.97", "updatedAt": "2026-04-15T12:34:56Z" }
+}
+```
+
 ### Salud (Probes)
-- `GET /livez`: Liveness probe — responde 200 OK.
-- `GET /readyz`: Readiness probe — verifica conectividad con MongoDB.
+
+#### `GET /livez`
+
+- **Descripción**: liveness probe (no depende de DB ni servicios externos).
+- **Respuestas**:
+  - `200 application/json`
+
+    ```json
+    {"status":"ok"}
+    ```
+
+#### `GET /readyz`
+
+- **Descripción**: readiness probe (hace `Ping` a MongoDB).
+- **Respuestas**:
+  - `200 application/json`
+
+    ```json
+    {"status":"ok"}
+    ```
+
+  - `503 application/json` (MongoDB inaccesible)
+
+    ```json
+    {"status":"unavailable","detail":"database connection failed"}
+    ```
 
 ### Carrito
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/cart/:user_id` | Obtiene el carrito del usuario. |
-| `DELETE` | `/cart/:user_id` | Vacía el carrito del usuario. |
-| `POST` | `/cart/:user_id/items` | Agrega un producto al carrito (acepta `product_id`). |
-| `DELETE` | `/cart/:user_id/items/:product_id` | Elimina un producto específico del carrito. |
+
+#### `GET /cart/{user_id}`
+
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+- **Respuestas**:
+  - `200 application/json` → `CartResponse`
+
+    ```json
+    {"data": {"userId": 1001, "items": [], "totalPrice": {"value": "0.00", "updatedAt": "2026-04-15T12:34:56Z"}}}
+    ```
+
+  - `400 application/problem+json` (user_id inválido)
+  - `500 application/problem+json`
+- **Notas de sincronización**:
+  - En cada `GET`, el servicio intenta sincronizar `stock` y `status` contra el microservicio de Catálogo.
+  - El `unitPrice` se actualiza **solo si está obsoleto** (más de 24h desde `unitPrice.updatedAt`).
+  - Si el Catálogo no está disponible durante el `GET`, se devuelve el carrito con los valores cacheados (best-effort).
+
+#### `DELETE /cart/{user_id}`
+
+- **Descripción**: vacía el carrito (idempotente: vaciar un carrito vacío también es OK).
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+- **Respuestas**:
+  - `204` (sin body)
+  - `400 application/problem+json`
+  - `500 application/problem+json`
+
+#### `POST /cart/{user_id}/items`
+
+- **Descripción**: agrega 1 unidad del producto al carrito. Si el producto ya existe, incrementa `quantity` en 1.
+- **Headers**:
+  - `Content-Type: application/json`
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+- **Request body**:
+
+  ```json
+  {"productId": 1}
+  ```
+
+- **Respuestas**:
+  - `201 application/json` → `CartItemResponse`
+
+    ```json
+    {"data": {"productId": 1, "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 1, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
+    ```
+
+  - `400 application/problem+json` (user_id inválido, JSON inválido o `productId` faltante/incorrecto)
+  - `404 application/problem+json` (producto inexistente en Catálogo)
+  - `422 application/problem+json` (stock insuficiente)
+  - `503 application/problem+json` (Catálogo no disponible)
+  - `500 application/problem+json`
+
+#### `DELETE /cart/{user_id}/items/{cart_item_id}`
+
+- **Descripción**: elimina el ítem del carrito por ID de producto del catálogo.
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+  - `cart_item_id` (integer, `>= 1`) — *corresponde a `productId`*
+- **Respuestas**:
+  - `204` (sin body)
+  - `400 application/problem+json`
+  - `404 application/problem+json` (el producto no está en el carrito)
+
+#### `PUT /cart/{user_id}/{product_id}/increment`
+
+- **Descripción**: incrementa `quantity` del producto en el carrito.
+- **Headers**:
+  - `Content-Type: application/json`
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+  - `product_id` (integer, `>= 1`)
+- **Request body**:
+
+  ```json
+  {"quantity": 3}
+  ```
+
+- **Respuestas**:
+  - `204` (sin body)
+  - `400 application/problem+json` (path params inválidos o JSON inválido/`quantity` faltante)
+  - `404 application/problem+json` (producto no está en el carrito)
+  - `422 application/problem+json` (stock insuficiente)
+  - `500 application/problem+json`
+
+#### `PUT /cart/{user_id}/{product_id}/decrement`
+
+- **Descripción**: decrementa `quantity` del producto en el carrito. La cantidad **no baja de 1**.
+- **Headers**:
+  - `Content-Type: application/json`
+- **Path params**:
+  - `user_id` (integer, `>= 1`)
+  - `product_id` (integer, `>= 1`)
+- **Request body**:
+
+  ```json
+  {"quantity": 1}
+  ```
+
+- **Respuestas**:
+  - `204` (sin body)
+  - `400 application/problem+json`
+  - `404 application/problem+json` (producto no está en el carrito)
+  - `500 application/problem+json`
 
 ## Tests
 
