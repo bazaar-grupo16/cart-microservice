@@ -91,8 +91,14 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		return
 	}
 
+	qty := 1
+	if req.Quantity != nil {
+		qty = *req.Quantity
+	}
+
 	item := models.CartItem{
 		ProductID: req.ProductID,
+		Quantity:  qty,
 	}
 
 	err = c.CartService.AddToCart(userID, &item)

@@ -100,7 +100,12 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 		return err
 	}
 
-	if product.Stock < 1 {
+	qty := item.Quantity
+	if qty < 1 {
+		qty = 1
+	}
+
+	if product.Stock < qty {
 		return ErrInsufficientStock
 	}
 
@@ -117,7 +122,7 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 		}
 	}
 
-	if currentQty+1 > product.Stock {
+	if currentQty+qty > product.Stock {
 		return ErrInsufficientStock
 	}
 
@@ -126,7 +131,7 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 	item.UnitPrice = product.Price
 	item.Stock = product.Stock
 	item.Status = product.Status
-	item.Quantity = 1 // default quantity on add
+	item.Quantity = qty
 
 	return s.CartRepository.AddItem(userID, item)
 }

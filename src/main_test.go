@@ -318,6 +318,56 @@ func TestAddItemToCart(t *testing.T) {
 	}
 }
 
+// TestAddItemToCart_WithQuantity verifies that POST /cart/{userId}/items supports
+// adding multiple units in a single request using the "quantity" field.
+func TestAddItemToCart_WithQuantity(t *testing.T) {
+	uid := uidAdd + 200
+	t.Cleanup(func() { cleanUser(uid) })
+
+	r, srv := setupRouter(t)
+	defer srv.Close()
+
+	body := fmt.Sprintf(`{"productId":"%s","quantity":3}`, testProductID)
+	req := httptest.NewRequest(http.MethodPost,
+		fmt.Sprintf("/cart/%d/items", uid),
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d — body: %s", w.Code, w.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/cart/%d", uid), nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, getReq)
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", wGet.Code, wGet.Body.String())
+	}
+
+	var cartResp struct {
+		Data struct {
+			Items []struct {
+				ProductID string `json:"productId"`
+				Quantity  int    `json:"quantity"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(wGet.Body.Bytes(), &cartResp); err != nil {
+		t.Fatalf("failed to parse cart response: %v", err)
+	}
+	if len(cartResp.Data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(cartResp.Data.Items))
+	}
+	if cartResp.Data.Items[0].ProductID != testProductID {
+		t.Fatalf("expected productId %s, got %s", testProductID, cartResp.Data.Items[0].ProductID)
+	}
+	if cartResp.Data.Items[0].Quantity != 3 {
+		t.Fatalf("expected quantity 3, got %d", cartResp.Data.Items[0].Quantity)
+	}
+}
+
 // TestAddSameItemIncrementsQuantity verifies that adding the same productId twice
 // increments the quantity to 2 instead of creating a duplicate entry.
 func TestAddSameItemIncrementsQuantity(t *testing.T) {

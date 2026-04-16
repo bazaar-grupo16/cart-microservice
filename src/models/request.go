@@ -1,11 +1,11 @@
 package models
 
 // AddCartRequest is the request body for POST /cart/{userId}/items.
-// Only the productId is required — the title and unitPrice are fetched from the
-// Catalog service at request time and stored as an immutable snapshot in the CartItem.
 // productId is a UUID string.
+// quantity is optional; when omitted it defaults to 1.
 type AddCartRequest struct {
 	ProductID string `json:"productId" binding:"required"`
+	Quantity  *int   `json:"quantity"  binding:"omitempty,min=1"`
 }
 
 // QuantityRequest is the request body for PUT /cart/{userId}/{productId}/increment

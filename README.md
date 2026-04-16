@@ -199,7 +199,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 #### `POST /cart/{user_id}/items`
 
-- **Descripción**: agrega 1 unidad del producto al carrito. Si el producto ya existe, incrementa `quantity` en 1.
+- **Descripción**: agrega $n$ unidades del producto al carrito (por defecto $n=1$). Si el producto ya existe, incrementa `quantity` en $n$.
 - **Headers**:
   - `Content-Type: application/json`
 - **Path params**:
@@ -207,14 +207,16 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Request body**:
 
   ```json
-  {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670"}
+  {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "quantity": 3}
   ```
+
+  - `quantity` (integer, `>= 1`) — opcional, por defecto `1`.
 
 - **Respuestas**:
   - `201 application/json` → `CartItemResponse`
 
     ```json
-    {"data": {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 1, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
+    {"data": {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 3, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
     ```
 
   - `400 application/problem+json` (user_id inválido, JSON inválido o `productId` faltante/incorrecto)
