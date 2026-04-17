@@ -2,7 +2,8 @@ package config
 
 import (
 	"context"
-	"math/rand"
+	crand "crypto/rand"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,8 +25,6 @@ const (
 
 var (
 	monitorOnce sync.Once
-	rngMu       sync.Mutex
-	rng         = rand.New(rand.NewSource(time.Now().UnixNano()))
 	reconnecting atomic.Bool
 )
 
@@ -165,14 +164,28 @@ func mongoBackoff(attempt int) time.Duration {
 	}
 
 	// Add up to 100ms of jitter to avoid synchronized retries.
-	rngMu.Lock()
-	jitterN := rng.Int63n(int64(100 * time.Millisecond))
-	rngMu.Unlock()
+	jitter, err := cryptoJitter(100 * time.Millisecond)
+	if err != nil {
+		return backoff
+	}
 
-	jitter := time.Duration(jitterN)
 	backoff += jitter
 	if backoff < 0 {
 		return mongoInitialBackoff
 	}
 	return backoff
+}
+
+func cryptoJitter(max time.Duration) (time.Duration, error) {
+	if max <= 0 {
+		return 0, nil
+	}
+
+	limit := big.NewInt(int64(max))
+	n, err := crand.Int(crand.Reader, limit)
+	if err != nil {
+		return 0, err
+	}
+
+	return time.Duration(n.Int64()), nil
 }
