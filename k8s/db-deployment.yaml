@@ -35,6 +35,8 @@ spec:
                 - --quiet
             initialDelaySeconds: 60
             periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             exec:
               command:
@@ -44,6 +46,8 @@ spec:
                 - --quiet
             initialDelaySeconds: 60
             periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
           # ── Resources ──────────────────────────────
           resources:
             requests:
