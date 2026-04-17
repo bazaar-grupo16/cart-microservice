@@ -68,7 +68,7 @@ jobs:
     name: Build & Push
     needs: [sast, test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
 
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +94,7 @@ jobs:
     name: Deploy to K8s
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
 
     steps:
       - uses: actions/checkout@v4
