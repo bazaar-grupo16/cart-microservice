@@ -115,6 +115,6 @@ jobs:
         run: |
           sudo apt-get install -y gettext-base
           for f in k8s/*.yaml; do
-            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${MONGO_URI} ${CATALOG_SERVICE_URL}' \
+            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${MONGO_URI} ${CATALOG_SERVICE_URL} ${ENVIRONMENT} ${MONGO_COLLECTION} ${MONGO_DB_NAME}' \
               < "$f" | kubectl apply -f - -n bazaar-dev
           done
