@@ -33,7 +33,7 @@ func main() {
 	config.ConnectDatabase()
 
 	// Dependency injection — cart domain only.
-	cartRepo := repository.NewCartRepository(config.CartCollection)
+	cartRepo := repository.NewCartRepository(config.GetCartCollection)
 	catalogClient := service.NewCatalogClient(os.Getenv("CATALOG_SERVICE_URL"))
 	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)

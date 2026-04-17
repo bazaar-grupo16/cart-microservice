@@ -25,7 +25,16 @@ func ReadyzHandler(ctx *gin.Context) {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if err := config.MongoClient.Ping(pingCtx, nil); err != nil {
+	client := config.GetMongoClient()
+	if client == nil {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "unavailable",
+			"detail": "database client not initialized",
+		})
+		return
+	}
+
+	if err := client.Ping(pingCtx, nil); err != nil {
 		zap.S().Errorw("Readiness check failed: MongoDB unreachable", "error", err)
 		ctx.JSON(http.StatusServiceUnavailable, gin.H{
 			"status": "unavailable",

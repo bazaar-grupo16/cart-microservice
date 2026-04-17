@@ -14,6 +14,10 @@ import (
 // ErrCartItemNotFound is returned when the requested product is not in the user's cart.
 var ErrCartItemNotFound = errors.New("cart item not found for this user")
 
+// ErrDatabaseUnavailable is returned when the repository has no MongoDB collection
+// available (e.g., during startup or while a reconnect attempt is in progress).
+var ErrDatabaseUnavailable = errors.New("database unavailable")
+
 // ProductUpdate carries catalog-fresh stock and status for a single product,
 // used by UpdateStockStatus to patch cart items atomically.
 type ProductUpdate struct {
@@ -26,22 +30,39 @@ type ProductUpdate struct {
 // CartRepository encapsulates all MongoDB operations for cart documents.
 // Each document represents one user's cart, with items embedded as an array.
 type CartRepository struct {
-	col *mongo.Collection
+	colProvider func() *mongo.Collection
 }
 
-// NewCartRepository creates a CartRepository backed by the given collection.
-func NewCartRepository(col *mongo.Collection) *CartRepository {
-	return &CartRepository{col: col}
+// NewCartRepository creates a CartRepository backed by the given collection provider.
+// The provider may return different *mongo.Collection instances over time (e.g. after reconnect).
+func NewCartRepository(colProvider func() *mongo.Collection) *CartRepository {
+	return &CartRepository{colProvider: colProvider}
+}
+
+func (r *CartRepository) col() (*mongo.Collection, error) {
+	if r == nil || r.colProvider == nil {
+		return nil, ErrDatabaseUnavailable
+	}
+	col := r.colProvider()
+	if col == nil {
+		return nil, ErrDatabaseUnavailable
+	}
+	return col, nil
 }
 
 // GetCartByUserID retrieves the cart document for the given user.
 // If no document exists yet, an empty cart is returned (no error).
 func (r *CartRepository) GetCartByUserID(userID int) (*models.Cart, error) {
+	col, err := r.col()
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var cart models.Cart
-	err := r.col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart)
+	err = col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return models.NewCart(userID, nil), nil
 	}
@@ -57,6 +78,11 @@ func (r *CartRepository) GetCartByUserID(userID int) (*models.Cart, error) {
 // The title, unitPrice, stock and status are snapshot values passed in from the service layer.
 // totalPrice is recalculated and persisted atomically on every write.
 func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -64,7 +90,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 	// Attempt to increment quantity when the product is already in the cart,
 	// and update stock/status to latest values from catalog.
-	incrResult, err := r.col.UpdateOne(
+	incrResult, err := col.UpdateOne(
 		ctx,
 		bson.D{
 			{Key: "userId", Value: userID},
@@ -85,7 +111,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 	if incrResult.ModifiedCount == 0 {
 		// Product not found in the cart — push a new item entry.
-		_, err = r.col.UpdateOne(
+		_, err = col.UpdateOne(
 			ctx,
 			bson.D{{Key: "userId", Value: userID}},
 			bson.D{{Key: "$push", Value: bson.D{{Key: "items", Value: item}}}},
@@ -103,10 +129,15 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 // IncrementItem increments the quantity of an existing cart item by delta.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
 func (r *CartRepository) IncrementItem(userID int, productID string, delta int, update ProductUpdate) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := r.col.UpdateOne(
+	result, err := col.UpdateOne(
 		ctx,
 		bson.D{
 			{Key: "userId", Value: userID},
@@ -135,12 +166,17 @@ func (r *CartRepository) IncrementItem(userID int, productID string, delta int, 
 // The quantity is prevented from falling below 1.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
 func (r *CartRepository) DecrementItem(userID int, productID string, delta int, update ProductUpdate) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Fetch the full Cart document to read the current item quantity.
 	var cart models.Cart
-	if err := r.col.FindOne(ctx, bson.D{
+	if err := col.FindOne(ctx, bson.D{
 		{Key: "userId", Value: userID},
 		{Key: "items.productId", Value: productID},
 	}).Decode(&cart); err != nil {
@@ -171,7 +207,7 @@ func (r *CartRepository) DecrementItem(userID int, productID string, delta int, 
 	}
 
 	// Set the new quantity and sync metadata.
-	result, err := r.col.UpdateOne(
+	result, err := col.UpdateOne(
 		ctx,
 		bson.D{
 			{Key: "userId", Value: userID},
@@ -208,6 +244,11 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 		return nil
 	}
 
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -215,7 +256,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 		// TODO: Check if the price is stale and update it if it is.
 		switch items[i].UnitPrice.IsPriceStale() {
 		case true:
-			_, err := r.col.UpdateOne(
+			_, err := col.UpdateOne(
 				ctx,
 				bson.D{
 					{Key: "userId", Value: userID},
@@ -233,7 +274,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 				return err
 			}
 		case false:
-			_, err := r.col.UpdateOne(
+			_, err := col.UpdateOne(
 				ctx,
 				bson.D{
 					{Key: "userId", Value: userID},
@@ -260,10 +301,15 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 // Returns ErrCartItemNotFound if no such product exists in that user's cart.
 // totalPrice is recalculated and persisted after the removal.
 func (r *CartRepository) RemoveItem(userID int, productID string) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := r.col.UpdateOne(
+	result, err := col.UpdateOne(
 		ctx,
 		bson.D{{Key: "userId", Value: userID}},
 		bson.D{{Key: "$pull", Value: bson.D{
@@ -283,10 +329,15 @@ func (r *CartRepository) RemoveItem(userID int, productID string) error {
 // ClearCart removes all items from the user's cart and resets totalPrice to 0.00.
 // This operation is idempotent — clearing an already-empty cart succeeds silently.
 func (r *CartRepository) ClearCart(userID int) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := r.col.UpdateOne(
+	_, err = col.UpdateOne(
 		ctx,
 		bson.D{{Key: "userId", Value: userID}},
 		bson.D{{Key: "$set", Value: bson.D{
@@ -301,8 +352,13 @@ func (r *CartRepository) ClearCart(userID int) error {
 // recalcTotalPrice reads the current items from the user's cart and writes the
 // correct totalPrice back to the document in a single targeted $set.
 func (r *CartRepository) recalcTotalPrice(ctx context.Context, userID int) error {
+	col, err := r.col()
+	if err != nil {
+		return err
+	}
+
 	var cart models.Cart
-	err := r.col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart)
+	err = col.FindOne(ctx, bson.D{{Key: "userId", Value: userID}}).Decode(&cart)
 	if err != nil {
 		return err
 	}
@@ -314,7 +370,7 @@ func (r *CartRepository) recalcTotalPrice(ctx context.Context, userID int) error
 		}
 	}
 
-	_, err = r.col.UpdateOne(
+	_, err = col.UpdateOne(
 		ctx,
 		bson.D{{Key: "userId", Value: userID}},
 		bson.D{{Key: "$set", Value: bson.D{{Key: "totalPrice", Value: total}}}},

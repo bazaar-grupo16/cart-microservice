@@ -3,11 +3,10 @@ package config
 import (
 	"context"
 	"os"
-	"time"
+	"sync"
+	"sync/atomic"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.uber.org/zap"
 )
 
@@ -16,6 +15,41 @@ var MongoClient *mongo.Client
 
 // CartCollection is the MongoDB collection that stores cart documents.
 var CartCollection *mongo.Collection
+
+var (
+	connMu sync.RWMutex
+
+	lastMongoCfg atomic.Value // mongoCfg
+)
+
+type mongoCfg struct {
+	uri      string
+	dbName   string
+	collName string
+}
+
+// GetMongoClient returns the current Mongo client.
+// It may temporarily be nil during startup or a reconnect attempt.
+func GetMongoClient() *mongo.Client {
+	connMu.RLock()
+	defer connMu.RUnlock()
+	return MongoClient
+}
+
+// GetCartCollection returns the current carts collection.
+// It may temporarily be nil during startup or a reconnect attempt.
+func GetCartCollection() *mongo.Collection {
+	connMu.RLock()
+	defer connMu.RUnlock()
+	return CartCollection
+}
+
+func setMongoGlobals(client *mongo.Client, collection *mongo.Collection) {
+	connMu.Lock()
+	defer connMu.Unlock()
+	MongoClient = client
+	CartCollection = collection
+}
 
 // ConnectDatabase establishes a connection to MongoDB using the MONGO_URI
 // environment variable and stores the cart collection in CartCollection.
@@ -37,30 +71,16 @@ func ConnectDatabase() {
 		zap.S().Fatal("MONGO_COLLECTION environment variable is not set")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	cfg := mongoCfg{uri: uri, dbName: dbName, collName: collName}
+	lastMongoCfg.Store(cfg)
 
-	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	client, collection, err := connectMongoWithRetry(context.Background(), cfg, mongoRetryTimeout)
 	if err != nil {
-		zap.S().Fatalw("Failed to create MongoDB client", "error", err)
+		zap.S().Fatalw("MongoDB connection failed after retries", "error", err)
 	}
 
-	// Verify the connection is reachable before proceeding.
-	if err := client.Ping(ctx, nil); err != nil {
-		zap.S().Fatalw("Failed to ping MongoDB", "error", err)
-	}
-
-	MongoClient = client
-	CartCollection = client.Database(dbName).Collection(collName)
-
-	// Ensure a unique sparse index on userId so each user has at most one cart document.
-	_, err = CartCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "userId", Value: 1}},
-		Options: options.Index().SetUnique(true).SetSparse(true),
-	})
-	if err != nil {
-		zap.S().Warnw("Could not create userId index (may already exist)", "error", err)
-	}
+	setMongoGlobals(client, collection)
+	startMongoReconnectMonitor()
 
 	zap.S().Infow("Connected to MongoDB", "db", dbName, "collection", collName)
 }
