@@ -33,7 +33,7 @@ spec:
                 - --eval
                 - "db.adminCommand('ping').ok"
                 - --quiet
-            initialDelaySeconds: 10
+            initialDelaySeconds: 60
             periodSeconds: 15
           readinessProbe:
             exec:
@@ -42,8 +42,8 @@ spec:
                 - --eval
                 - "db.adminCommand('ping').ok"
                 - --quiet
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
           # ── Resources ──────────────────────────────
           resources:
             requests:
