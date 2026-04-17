@@ -112,6 +112,9 @@ jobs:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           CATALOG_SERVICE_URL: ${{ secrets.CATALOG_SERVICE_URL }}
+          MONGO_COLLECTION: ${{ secrets.MONGO_COLLECTION }}
+          MONGO_DB_NAME: ${{ secrets.MONGO_DB_NAME }}
+          ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
         run: |
           sudo apt-get install -y gettext-base
           for f in k8s/*.yaml; do
