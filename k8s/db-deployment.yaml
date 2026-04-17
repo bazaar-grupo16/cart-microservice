@@ -4,21 +4,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bazaar-db
+  name: cart-db
   labels:
-    app: bazaar-db
+    app: cart-db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: bazaar-db
+      app: cart-db
   template:
     metadata:
       labels:
-        app: bazaar-db
+        app: cart-db
     spec:
       containers:
-        - name: mongo
+        - name: cart-db
           image: mongo:8
           ports:
             - containerPort: 27017
@@ -56,4 +56,4 @@ spec:
       volumes:
         - name: mongo-data
           persistentVolumeClaim:
-            claimName: bazaar-db-pvc
+            claimName: cart-db-pvc
