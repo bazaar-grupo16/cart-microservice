@@ -92,7 +92,12 @@ func TestMain(m *testing.M) {
 func cleanCollection() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := config.CartCollection.DeleteMany(ctx, bson.D{}); err != nil {
+	col := config.GetCartCollection()
+	if col == nil {
+		zap.S().Warn("Failed to clean test collection: collection is nil")
+		return
+	}
+	if _, err := col.DeleteMany(ctx, bson.D{}); err != nil {
 		zap.S().Warnw("Failed to clean test collection", "error", err)
 	}
 }
@@ -101,7 +106,12 @@ func cleanCollection() {
 func cleanUser(userID int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := config.CartCollection.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
+	col := config.GetCartCollection()
+	if col == nil {
+		zap.S().Warnw("Failed to clean user cart: collection is nil", "userID", userID)
+		return
+	}
+	if _, err := col.DeleteMany(ctx, bson.D{{Key: "userId", Value: userID}}); err != nil {
 		zap.S().Warnw("Failed to clean user cart", "userID", userID, "error", err)
 	}
 }
@@ -125,7 +135,7 @@ func setupRouterWithCatalogURL(catalogURL string) *gin.Engine {
 }
 
 func buildRouter(catalogURL string) *gin.Engine {
-	cartRepo := repository.NewCartRepository(config.CartCollection)
+	cartRepo := repository.NewCartRepository(config.GetCartCollection)
 	catalogClient := service.NewCatalogClient(catalogURL)
 	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)
@@ -997,7 +1007,11 @@ func TestUpdateProductSnapshot(t *testing.T) {
 	defer cancel()
 
 	staleTime := time.Now().UTC().Add(-25 * time.Hour)
-	_, err := config.CartCollection.UpdateOne(ctx,
+	col := config.GetCartCollection()
+	if col == nil {
+		t.Fatalf("collection is nil")
+	}
+	_, err := col.UpdateOne(ctx,
 		bson.D{{Key: "userId", Value: uidUpdateSnapshot}, {Key: "items.productId", Value: testProductID}},
 		bson.D{{Key: "$set", Value: bson.D{{Key: "items.$.unitPrice.updatedAt", Value: staleTime}}}},
 	)
