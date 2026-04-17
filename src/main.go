@@ -4,39 +4,45 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ValentinMarturet/is2-rojas/src/config"
-	"github.com/ValentinMarturet/is2-rojas/src/controller"
-	"github.com/ValentinMarturet/is2-rojas/src/repository"
-	"github.com/ValentinMarturet/is2-rojas/src/router"
-	"github.com/ValentinMarturet/is2-rojas/src/service"
+	"github.com/bazaar-grupo16/cart-microservice/src/config"
+	"github.com/bazaar-grupo16/cart-microservice/src/controller"
+	"github.com/bazaar-grupo16/cart-microservice/src/repository"
+	"github.com/bazaar-grupo16/cart-microservice/src/router"
+	"github.com/bazaar-grupo16/cart-microservice/src/service"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// Initialize global Zap logger
+	// Initialize structured logger.
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() {
+		if err := logger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
+		}
+	}()
+
 	zap.ReplaceGlobals(logger)
 
-	// Load environment variables
-	err := godotenv.Load("../.env")
-	if err != nil {
-		zap.S().Info("Error loading .env file. Using system environment variables.")
+	// Load environment variables from .env file (fallback to system env).
+	if err := godotenv.Load("../.env"); err != nil {
+		zap.S().Info("No .env file found; using system environment variables")
 	}
 
+	// Connect to MongoDB (reads MONGO_URI from environment).
 	config.ConnectDatabase()
-	config.RunMigrations()
 
-	productRepo := repository.NewProductRepository(config.DB)
-	productService := service.NewProductService(productRepo)
-	productController := controller.NewProductController(productService)
-
-	cartRepo := repository.NewCartRepository(config.DB)
-	cartService := service.NewCartService(cartRepo, productRepo)
+	// Dependency injection — cart domain only.
+	cartRepo := repository.NewCartRepository(config.CartCollection)
+	catalogClient := service.NewCatalogClient(os.Getenv("CATALOG_SERVICE_URL"))
+	cartService := service.NewCartService(cartRepo, catalogClient)
 	cartController := controller.NewCartController(cartService)
 
-	r := router.SetupRouter(productController, cartController)
+	r := router.SetupRouter(cartController)
 
-	_ = r.Run(fmt.Sprintf(":%s", os.Getenv("PORT")))
+	addr := fmt.Sprintf(":%s", os.Getenv("PORT"))
+	zap.S().Infow("Starting cart microservice", "addr", addr)
+	if err := r.Run(addr); err != nil {
+		zap.S().Fatalw("Server failed to start", "error", err)
+	}
 }

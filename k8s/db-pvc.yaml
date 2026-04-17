@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# PersistentVolumeClaim — Bazaar PostgreSQL Database
+# PersistentVolumeClaim — Bazaar MongoDB Database
 # ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: PersistentVolumeClaim

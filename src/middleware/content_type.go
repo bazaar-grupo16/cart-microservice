@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ValentinMarturet/is2-rojas/src/utils"
+	"github.com/bazaar-grupo16/cart-microservice/src/utils"
 	"github.com/gin-gonic/gin"
 )
 

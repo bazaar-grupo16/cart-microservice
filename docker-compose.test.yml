@@ -1,32 +1,27 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: test_db
+  mongo-test:
+    image: mongo:8
+    container_name: mongo_test
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: ecommerce_test
-    ports:
-      - "5433:5432" # Use a different port to avoid conflict with main db
+      MONGO_INITDB_DATABASE: cart_test
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d ecommerce_test"]
-      interval: 2s
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet" ]
+      interval: 5s
       timeout: 5s
       retries: 10
 
-  test:
+  test-runner:
     image: golang:alpine
     container_name: backend_test
     working_dir: /app
     volumes:
       - .:/app
     environment:
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=admin
-      - DATABASE_PASSWORD=secret
-      - DATABASE_NAME=ecommerce_test
+      - MONGO_URI=mongodb://mongo-test:27017
+      - MONGO_DB_NAME=cart_test
+      - MONGO_COLLECTION=carts
     depends_on:
-      postgres:
+      mongo-test:
         condition: service_healthy
-    command: go test ./src/... -v
+    # -count=1 disables test result caching so tests always run against the live DB.
+    command: go test ./src/... -v -count=1

@@ -1,34 +1,48 @@
 package models
 
 import (
-	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// Price is a custom type that uses json.Number to ensure precision during JSON unmarshaling.
-// All arithmetic and comparisons use math/big.Rat for exact decimal operations.
-type Price json.Number
+// Price is a struct that ensures decimal precision for currency values.
+// In MongoDB and JSON it contains the string 'value' and 'updatedAt' timestamp.
+type Price struct {
+	Value     json.Number `bson:"value"     json:"value"`
+	UpdatedAt time.Time   `bson:"updatedAt" json:"updatedAt"`
+}
 
-// Rat returns the exact rational representation of the price string.
+// NewPrice creates a new Price with the given value string and current UTC timestamp.
+func NewPrice(val string) Price {
+	if val == "" {
+		val = "0.00"
+	}
+	return Price{
+		Value:     json.Number(val),
+		UpdatedAt: time.Now().UTC(),
+	}
+}
+
+// Rat returns the exact rational representation of the price value.
 func (p Price) Rat() *big.Rat {
-	r, ok := new(big.Rat).SetString(string(p))
+	r, ok := new(big.Rat).SetString(string(p.Value))
 	if !ok {
 		return new(big.Rat)
 	}
 	return r
 }
 
-// Float64 returns the float64 representation of the price.
-// Prefer Rat(), Cmp(), IsPositive(), or IsAtLeast() for precise operations.
+// Float64 returns the float64 representation of the price value.
 func (p Price) Float64() float64 {
-	f, _ := json.Number(p).Float64()
+	f, _ := p.Value.Float64()
 	return f
 }
 
-// MarshalJSON customizes the JSON representation of Price to ensure strictly 2 decimal places.
-// Rounding is performed using exact rational arithmetic to avoid float64 precision issues.
+// MarshalJSON customizes the JSON representation to ensure Value has strictly 2 decimal places.
 func (p Price) MarshalJSON() ([]byte, error) {
 	r := p.Rat()
 
@@ -43,33 +57,107 @@ func (p Price) MarshalJSON() ([]byte, error) {
 	// Truncate to integer (floor for positive prices)
 	cents := new(big.Int).Div(r.Num(), r.Denom())
 
-	// Format as "dollars.cents" using big.Int arithmetic to avoid int64 overflow
 	bigHundred := big.NewInt(100)
 	dollars := new(big.Int)
 	remainder := new(big.Int)
 	dollars.DivMod(cents, bigHundred, remainder)
 	remainder.Abs(remainder)
-	formatted := fmt.Sprintf("%s.%02d", dollars.String(), remainder)
-	return []byte(formatted), nil
+
+	formattedValue := fmt.Sprintf("%s.%02d", dollars.String(), remainder)
+
+	// We return the full struct JSON
+	type alias Price
+	return json.Marshal(&struct {
+		Value string `json:"value"`
+		alias
+	}{
+		Value: formattedValue,
+		alias: alias(p),
+	})
 }
 
-// UnmarshalJSON customizes the JSON unmarshaling of Price to use json.Number.
+// UnmarshalJSON customizes the JSON unmarshaling of Price.
 func (p *Price) UnmarshalJSON(data []byte) error {
-	var n json.Number
-	if err := json.Unmarshal(data, &n); err != nil {
+	// Support both: a naked number/string (old format) or the new struct format
+	var simple json.Number
+	if err := json.Unmarshal(data, &simple); err == nil {
+		*p = NewPrice(string(simple))
+		return nil
+	}
+
+	type alias Price
+	var aux struct {
+		Value json.Number `json:"value"`
+		alias
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	*p = Price(n)
+	p.Value = aux.Value
+	p.UpdatedAt = aux.UpdatedAt
+	return nil
+}
+
+// MarshalBSONValue implements bson.ValueMarshaler.
+func (p Price) MarshalBSONValue() (bson.Type, []byte, error) {
+	// Canonical "X.YY" formatting for the string value
+	r := p.Rat()
+	hundred := new(big.Rat).SetInt64(100)
+	r.Mul(r, hundred)
+	half := new(big.Rat).SetFrac64(1, 2)
+	r.Add(r, half)
+	cents := new(big.Int).Div(r.Num(), r.Denom())
+	bigHundred := big.NewInt(100)
+	dollars := new(big.Int)
+	remainder := new(big.Int)
+	dollars.DivMod(cents, bigHundred, remainder)
+	remainder.Abs(remainder)
+	formattedValue := fmt.Sprintf("%s.%02d", dollars.String(), remainder)
+
+	b, err := bson.Marshal(struct {
+		Value     string    `bson:"value"`
+		UpdatedAt time.Time `bson:"updatedAt"`
+	}{
+		Value:     formattedValue,
+		UpdatedAt: p.UpdatedAt.UTC(),
+	})
+	if err != nil {
+		return bson.TypeEmbeddedDocument, nil, err
+	}
+	return bson.TypeEmbeddedDocument, b, nil
+}
+
+// UnmarshalBSONValue implements bson.ValueUnmarshaler.
+func (p *Price) UnmarshalBSONValue(t bson.Type, data []byte) error {
+	// Support reading the old string format ("9.99")
+	if t == bson.TypeString {
+		var s string
+		if err := bson.UnmarshalValue(t, data, &s); err != nil {
+			return err
+		}
+		*p = NewPrice(s)
+		return nil
+	}
+
+	// Support the new struct format
+	var aux struct {
+		Value     json.Number `bson:"value"`
+		UpdatedAt time.Time   `bson:"updatedAt"`
+	}
+	if err := bson.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	p.Value = aux.Value
+	p.UpdatedAt = aux.UpdatedAt
 	return nil
 }
 
 // Cmp compares two Price values using exact arithmetic.
-// Returns -1 if p < other, 0 if p == other, +1 if p > other.
 func (p Price) Cmp(other Price) int {
 	return p.Rat().Cmp(other.Rat())
 }
 
-// IsPositive returns true if the price is strictly greater than zero, using exact arithmetic.
+// IsPositive returns true if the price value is strictly greater than zero.
 func (p Price) IsPositive() bool {
 	return p.Rat().Sign() > 0
 }
@@ -83,34 +171,19 @@ func (p Price) IsAtLeast(min string) bool {
 	return p.Rat().Cmp(m) >= 0
 }
 
-// Add returns a new Price that is the exact sum of p and other.
+// Add returns a new Price that is the exact sum of p and other, with current timestamp.
 func (p Price) Add(other Price) Price {
 	sum := new(big.Rat).Add(p.Rat(), other.Rat())
-	return Price(sum.FloatString(2))
+	return NewPrice(sum.FloatString(2))
 }
 
-// Scan implements the sql.Scanner interface for database compatibility.
-func (p *Price) Scan(value interface{}) error {
-	if value == nil {
-		*p = Price("0.00")
-		return nil
-	}
-	switch v := value.(type) {
-	case []byte:
-		*p = Price(string(v))
-	case string:
-		*p = Price(v)
-	case float64:
-		// Use Rat to avoid precision loss from Sprintf
-		r := new(big.Rat).SetFloat64(v)
-		*p = Price(r.FloatString(2))
-	default:
-		return fmt.Errorf("unsupported type for Price: %T", value)
-	}
-	return nil
+// Multiply returns a new Price that is the exact product of p and a factor, with current timestamp.
+func (p Price) Multiply(factor int) Price {
+	f := new(big.Rat).SetInt64(int64(factor))
+	prod := new(big.Rat).Mul(p.Rat(), f)
+	return NewPrice(prod.FloatString(2))
 }
 
-// Value implements the driver.Valuer interface for database compatibility.
-func (p Price) Value() (driver.Value, error) {
-	return string(p), nil
+func (p Price) IsPriceStale() bool {
+	return time.Since(p.UpdatedAt) > 24*time.Hour
 }

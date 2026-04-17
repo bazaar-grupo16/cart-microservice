@@ -1,0 +1,348 @@
+openapi: 3.0.0
+info:
+  title: eCommerce Products Service API
+  version: 2.0.0
+
+paths:
+  /products:
+    post:
+      summary: Create a new product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductRequest'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '400':
+          description: Bad request error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: Retrieve all products
+      description: Returns all products ordered by id ascending
+      responses:
+        '200':
+          description: A list of products
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+
+  /products/{id}:
+    get:
+      summary: Retrieve a product by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Full update of a product by ID
+      description: Replaces all mutable fields of a product. All fields in the request body are required.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProductRequest'
+      responses:
+        '200':
+          description: Product updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '400':
+          description: Bad request error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Product not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a product by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Product deleted successfully
+        '404':
+          description: Product not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cart/{userId}:
+    get:
+      summary: Get user's cart
+      description: Returns the user's cart with items ordered by addedAt descending, then id descending. An unknown userId returns an empty cart.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User cart retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Cart'
+
+    delete:
+      summary: Wipe a user's cart
+      description: Removes all items from the user's cart. Idempotent - wiping an empty or non-existent cart returns 204.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Cart wiped successfully
+
+  /cart/{userId}/items:
+    post:
+      summary: Add product to user's cart
+      description: Adds a new cart item with a snapshot of the product's current price and title. Each POST creates an independent item (duplicates allowed).
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartRequest'
+      responses:
+        '201':
+          description: Product added to cart successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CartItem'
+        '404':
+          description: Product not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Bad request error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /cart/{userId}/items/{cartItemId}:
+    delete:
+      summary: Delete an item from a user's cart
+      description: Removes a specific item from the user's cart. The item must belong to the specified user.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: cartItemId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Cart item deleted successfully
+        '404':
+          description: Cart item not found in user's cart
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    Product:
+      type: object
+      required: [id, sellerId, title, description, price, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        sellerId:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0.01
+          description: Price in USD, rounded to 2 decimal places
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CartItem:
+      type: object
+      required: [id, productId, title, unitPrice, addedAt]
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        title:
+          type: string
+        unitPrice:
+          type: number
+          minimum: 0.01
+          description: Snapshot price in USD when item was added to cart, rounded to 2 decimal places
+        addedAt:
+          type: string
+          format: date-time
+
+    Cart:
+      type: object
+      required: [userId, items, totalPrice]
+      properties:
+        userId:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        totalPrice:
+          type: number
+          minimum: 0
+          description: Sum of unitPrice of all items, in USD
+
+    CreateProductRequest:
+      type: object
+      required:
+        - sellerId
+        - title
+        - description
+        - price
+      properties:
+        sellerId:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0.01
+
+    UpdateProductRequest:
+      type: object
+      required:
+        - title
+        - description
+        - price
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0.01
+
+    AddCartRequest:
+      type: object
+      required:
+        - productId
+      properties:
+        productId:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required: [type, title, status, detail, instance]
+      properties:
+        type:
+          type: string
+          enum: [about:blank]
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string

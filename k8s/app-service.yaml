@@ -1,17 +1,17 @@
 # ──────────────────────────────────────────────────────────────
-# Kubernetes Service — Bazaar Microservice
+# Kubernetes Service — Bazaar Cart Microservice
 # ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
-  name: template-service
+  name: cart-service
   labels:
-    app: template-service
+    app: cart-service
 spec:
   type: ClusterIP
   selector:
-    app: template-service
+    app: cart-service
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8000
+      targetPort: 8080

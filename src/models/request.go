@@ -1,20 +1,16 @@
 package models
 
-type CreateProductRequest struct {
-	SellerID    int    `json:"sellerId" binding:"required,min=1"`
-	Title       string `json:"title" binding:"required"`
-	Description string `json:"description" binding:"required"`
-	Price       Price  `json:"price" binding:"required"`
-}
-
-// UpdateProductRequest strictly enforces the OpenAPI request schema for updating a product entirely
-type UpdateProductRequest struct {
-	Title       string `json:"title" binding:"required"`
-	Description string `json:"description" binding:"required"`
-	Price       Price  `json:"price" binding:"required,gt=0"`
-}
-
-// AddCartRequest strictly enforces the OpenAPI request schema for adding a product to a cart
+// AddCartRequest is the request body for POST /cart/{userId}/items.
+// productId is a UUID string.
+// quantity is optional; when omitted it defaults to 1.
 type AddCartRequest struct {
-	ProductID int `json:"productId" binding:"required,min=1"`
+	ProductID string `json:"productId" binding:"required"`
+	Quantity  *int   `json:"quantity"  binding:"omitempty,min=1"`
+}
+
+// QuantityRequest is the request body for PUT /cart/{userId}/{productId}/increment
+// and PUT /cart/{userId}/{productId}/decrement.
+// Quantity must be a positive integer.
+type QuantityRequest struct {
+	Quantity int `json:"quantity" binding:"required,min=1"`
 }

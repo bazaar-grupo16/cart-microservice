@@ -1,21 +1,20 @@
 # ──────────────────────────────────────────────────────────────
-# CI/CD Pipeline — Bazaar Microservice
+# CI/CD Pipeline — Bazaar Cart Microservice (Go/Gin + MongoDB)
 # ──────────────────────────────────────────────────────────────
 name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "src/**"
-      - "tests/**"
       - "Dockerfile"
-      - "Dockerfile.test"
       - "docker-compose.test.yml"
       - "k8s/**"
-      - "requirements.txt"
+      - "go.mod"
+      - "go.sum"
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -25,38 +24,32 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
-  # ── 1. Lint ────────────────────────────────────────
-  lint:
-    name: Lint
+  # ── 1. Security scan (SAST) ────────────────────────────────────
+  sast:
+    name: Security Scan
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.11"
+          go-version-file: go.mod
+          cache: true
 
-      - name: Install Ruff
-        run: pip install ruff
+      - name: Run gosec (SAST)
+        uses: securego/gosec@master
+        with:
+          args: ./src/...
 
-      - name: Lint with Ruff
-        run: ruff check src/ tests/
-
-  # ── 2. Test ─────
+  # ── 2. Test ────────────────────────────────────────────────────
   test:
     name: Test
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Bandit (SAST)
-        run: pip install bandit
-
-      - name: Run Security Check
-        run: bandit -r src/ -ll
 
       - name: Run tests via docker compose
         run: |
@@ -69,10 +62,10 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.test.yml down -v
 
-  # ── 3. Build & Push Docker image ───────────────────
+  # ── 3. Build & Push Docker image ──────────────────────────────
   build:
     name: Build & Push
-    needs: [lint, test]
+    needs: [sast, test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
@@ -95,16 +88,13 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
 
-  # ── 4. Deploy to Kubernetes (optional) ─────────────
-  # Uncomment the job below to enable automatic deployment
-  # to a DigitalOcean Kubernetes cluster.
-  
+  # ── 4. Deploy to Kubernetes ────────────────────────────────────
   deploy:
     name: Deploy to K8s
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-  
+
     steps:
       - uses: actions/checkout@v4
 
@@ -115,17 +105,16 @@ jobs:
 
       - name: Configure kubectl
         run: doctl kubernetes cluster kubeconfig save e6683ee9-809c-4ab1-a965-bc55aba1ec4a
-  
+
       - name: Update Kubernetes manifests and deploy
         env:
           IMAGE_TAG: ${{ github.sha }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          CATALOG_SERVICE_URL: ${{ secrets.CATALOG_SERVICE_URL }}
         run: |
           sudo apt-get install -y gettext-base
           for f in k8s/*.yaml; do
-            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${DB_USER} ${DB_PASSWORD} ${DB_NAME}' \
+            envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${MONGO_URI} ${CATALOG_SERVICE_URL}' \
               < "$f" | kubectl apply -f - -n bazaar-dev
           done
