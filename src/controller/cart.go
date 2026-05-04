@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
 	"github.com/bazaar-grupo16/cart-microservice/src/repository"
@@ -28,9 +27,9 @@ func NewCartController(cartService *service.CartService) *CartController {
 // GetCart handles GET /cart/:user_id.
 func (c *CartController) GetCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
-	userID, err := strconv.Atoi(strId)
-	if err != nil || userID <= 0 {
-		zap.S().Debugw("Invalid user ID format for getting cart", "id", strId, "error", err)
+	userID := strId
+	if !utils.IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format for getting cart", "id", strId)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -48,14 +47,14 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 // ClearCart handles DELETE /cart/:user_id.
 func (c *CartController) ClearCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
-	userID, err := strconv.Atoi(strId)
-	if err != nil || userID <= 0 {
-		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strId, "error", err)
+	userID := strId
+	if !utils.IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strId)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
 
-	err = c.CartService.ClearCart(userID)
+	err := c.CartService.ClearCart(userID)
 	if err != nil {
 		zap.S().Errorw("Failed to clear cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not clear the cart at this time", ctx.Request.URL.String())
@@ -71,9 +70,9 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 // quantity is incremented instead of adding a duplicate entry.
 func (c *CartController) AddToCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
-	userID, err := strconv.Atoi(strId)
-	if err != nil || userID <= 0 {
-		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strId, "error", err)
+	userID := strId
+	if !utils.IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strId)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -101,7 +100,7 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		Quantity:  qty,
 	}
 
-	err = c.CartService.AddToCart(userID, &item)
+	err := c.CartService.AddToCart(userID, &item)
 	switch {
 	case errors.Is(err, service.ErrProductNotFound):
 		zap.S().Debugw("Product not found in catalog", "userID", userID, "productID", req.ProductID)
@@ -129,9 +128,9 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 // items are identified by their productId (one entry per product per user).
 func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 	strId := ctx.Param("user_id")
-	userID, err := strconv.Atoi(strId)
-	if err != nil || userID <= 0 {
-		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strId, "error", err)
+	userID := strId
+	if !utils.IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strId)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -143,7 +142,7 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		return
 	}
 
-	err = c.CartService.RemoveFromCart(userID, productID)
+	err := c.CartService.RemoveFromCart(userID, productID)
 	if err != nil {
 		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "productID", productID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",

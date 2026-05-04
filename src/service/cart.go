@@ -14,13 +14,13 @@ var ErrInsufficientStock = errors.New("insufficient stock")
 // Using an interface here makes the service layer testable without a real MongoDB
 // instance when only unit-level tests are needed.
 type CartRepositoryI interface {
-	GetCartByUserID(userID int) (*models.Cart, error)
-	AddItem(userID int, item *models.CartItem) error
-	IncrementItem(userID int, productID string, delta int, update repository.ProductUpdate) error
-	DecrementItem(userID int, productID string, delta int, update repository.ProductUpdate) error
-	UpdateProductSnapshot(userID int, items []models.CartItem, updates []repository.ProductUpdate) error
-	RemoveItem(userID int, productID string) error
-	ClearCart(userID int) error
+	GetCartByUserID(userID string) (*models.Cart, error)
+	AddItem(userID string, item *models.CartItem) error
+	IncrementItem(userID string, productID string, delta int, update repository.ProductUpdate) error
+	DecrementItem(userID string, productID string, delta int, update repository.ProductUpdate) error
+	UpdateProductSnapshot(userID string, items []models.CartItem, updates []repository.ProductUpdate) error
+	RemoveItem(userID string, productID string) error
+	ClearCart(userID string) error
 }
 
 // CartService provides business logic for shopping cart operations.
@@ -41,7 +41,7 @@ func NewCartService(cartRepo CartRepositoryI, catalogClient CatalogClientI) *Car
 // stock and status of each item with the Catalog service.
 // If the Catalog is unavailable, the cart is returned with the last cached values
 // (no error is propagated — the failure is logged and silently skipped).
-func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
+func (s *CartService) GetCartByUserID(userID string) (*models.Cart, error) {
 	cart, err := s.CartRepository.GetCartByUserID(userID)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (s *CartService) GetCartByUserID(userID int) (*models.Cart, error) {
 
 // ClearCart removes all items from the user's cart.
 // Idempotent — clearing an empty or non-existent cart is not an error.
-func (s *CartService) ClearCart(userID int) error {
+func (s *CartService) ClearCart(userID string) error {
 	return s.CartRepository.ClearCart(userID)
 }
 
@@ -94,7 +94,7 @@ func (s *CartService) ClearCart(userID int) error {
 // Returns:
 //   - ErrProductNotFound if the catalog returns 404.
 //   - ErrCatalogUnavailable if the catalog is unreachable or the circuit is open.
-func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
+func (s *CartService) AddToCart(userID string, item *models.CartItem) error {
 	product, err := s.CatalogClient.GetProduct(item.ProductID)
 	if err != nil {
 		return err
@@ -128,6 +128,7 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 
 	// Persist snapshots of title and price, plus live stock/status.
 	item.Title = product.Title
+	item.SellerID = product.SellerID
 	item.UnitPrice = product.Price
 	item.Stock = product.Stock
 	item.Status = product.Status
@@ -138,7 +139,7 @@ func (s *CartService) AddToCart(userID int, item *models.CartItem) error {
 
 // IncrementItem increases the quantity of an existing cart item by qty.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) IncrementItem(userID int, productID string, qty int) error {
+func (s *CartService) IncrementItem(userID string, productID string, qty int) error {
 	product, err := s.CatalogClient.GetProduct(productID)
 	if err != nil {
 		return err
@@ -186,7 +187,7 @@ func (s *CartService) IncrementItem(userID int, productID string, qty int) error
 // DecrementItem decreases the quantity of an existing cart item by qty.
 // If the resulting quantity would be <= 0, the item is removed from the cart.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) DecrementItem(userID int, productID string, qty int) error {
+func (s *CartService) DecrementItem(userID string, productID string, qty int) error {
 	product, err := s.CatalogClient.GetProduct(productID)
 	if err != nil {
 		return err
@@ -211,6 +212,6 @@ func (s *CartService) DecrementItem(userID int, productID string, qty int) error
 // RemoveFromCart removes the product entry from the user's cart.
 // Returns an error (propagated from the repository) if the product is not in the cart
 // or does not belong to the given user.
-func (s *CartService) RemoveFromCart(userID int, productID string) error {
+func (s *CartService) RemoveFromCart(userID string, productID string) error {
 	return s.CartRepository.RemoveItem(userID, productID)
 }
