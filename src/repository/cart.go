@@ -52,7 +52,7 @@ func (r *CartRepository) col() (*mongo.Collection, error) {
 
 // GetCartByUserID retrieves the cart document for the given user.
 // If no document exists yet, an empty cart is returned (no error).
-func (r *CartRepository) GetCartByUserID(userID int) (*models.Cart, error) {
+func (r *CartRepository) GetCartByUserID(userID string) (*models.Cart, error) {
 	col, err := r.col()
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (r *CartRepository) GetCartByUserID(userID int) (*models.Cart, error) {
 // If the cart document does not exist yet, it is created (upsert).
 // The title, unitPrice, stock and status are snapshot values passed in from the service layer.
 // totalPrice is recalculated and persisted atomically on every write.
-func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
+func (r *CartRepository) AddItem(userID string, item *models.CartItem) error {
 	col, err := r.col()
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func (r *CartRepository) AddItem(userID int, item *models.CartItem) error {
 
 // IncrementItem increments the quantity of an existing cart item by delta.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) IncrementItem(userID int, productID string, delta int, update ProductUpdate) error {
+func (r *CartRepository) IncrementItem(userID string, productID string, delta int, update ProductUpdate) error {
 	col, err := r.col()
 	if err != nil {
 		return err
@@ -165,7 +165,7 @@ func (r *CartRepository) IncrementItem(userID int, productID string, delta int, 
 // DecrementItem decrements the quantity of an existing cart item by delta.
 // The quantity is prevented from falling below 1.
 // Returns ErrCartItemNotFound if the product is not in the user's cart.
-func (r *CartRepository) DecrementItem(userID int, productID string, delta int, update ProductUpdate) error {
+func (r *CartRepository) DecrementItem(userID string, productID string, delta int, update ProductUpdate) error {
 	col, err := r.col()
 	if err != nil {
 		return err
@@ -239,7 +239,7 @@ func (r *CartRepository) DecrementItem(userID int, productID string, delta int, 
 //   - items and updates must have the same length.
 //   - updates must be ordered in the same order as items.
 //   - updates[i].ProductID must match items[i].ProductID.
-func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartItem, updates []ProductUpdate) error {
+func (r *CartRepository) UpdateProductSnapshot(userID string, items []models.CartItem, updates []ProductUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -300,7 +300,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID int, items []models.CartIt
 // RemoveItem removes the cart entry for the given productId from the user's cart.
 // Returns ErrCartItemNotFound if no such product exists in that user's cart.
 // totalPrice is recalculated and persisted after the removal.
-func (r *CartRepository) RemoveItem(userID int, productID string) error {
+func (r *CartRepository) RemoveItem(userID string, productID string) error {
 	col, err := r.col()
 	if err != nil {
 		return err
@@ -328,7 +328,7 @@ func (r *CartRepository) RemoveItem(userID int, productID string) error {
 
 // ClearCart removes all items from the user's cart and resets totalPrice to 0.00.
 // This operation is idempotent — clearing an already-empty cart succeeds silently.
-func (r *CartRepository) ClearCart(userID int) error {
+func (r *CartRepository) ClearCart(userID string) error {
 	col, err := r.col()
 	if err != nil {
 		return err
@@ -351,7 +351,7 @@ func (r *CartRepository) ClearCart(userID int) error {
 
 // recalcTotalPrice reads the current items from the user's cart and writes the
 // correct totalPrice back to the document in a single targeted $set.
-func (r *CartRepository) recalcTotalPrice(ctx context.Context, userID int) error {
+func (r *CartRepository) recalcTotalPrice(ctx context.Context, userID string) error {
 	col, err := r.col()
 	if err != nil {
 		return err
