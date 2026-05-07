@@ -12,10 +12,13 @@ spec:
   selector:
     matchLabels:
       app: cart-db
+  strategy:
+    type: Recreate # There cannot be two MongoDB nodes running at the same time because only one can be attached to the same PVC
   template:
     metadata:
       labels:
         app: cart-db
+  
     spec:
       containers:
         - name: cart-db
@@ -70,5 +73,4 @@ spec:
         - name: mongo-data
           persistentVolumeClaim:
             claimName: cart-db-pvc
-      strategy:
-        type: Recreate # There cannot be two MongoDB nodes running at the same time because only one can be attached to the same PVC
+      
