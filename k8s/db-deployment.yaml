@@ -25,6 +25,12 @@ spec:
           env:
             - name: MONGO_INITDB_DATABASE
               value: cart_db
+          args:
+            - "--wiredTigerCacheSizeGB=0.25"
+            - "--wiredTigerEngineConfigString=eviction=(threads_min=1,threads_max=2)"
+            - "--maxConns=50"
+            - "--setParameter"
+            - "diagnosticDataCollectionEnabled=false"
           # ── Probes ─────────────────────────────────
           livenessProbe:
             exec:
@@ -34,8 +40,8 @@ spec:
                 - "db.adminCommand('ping').ok"
                 - --quiet
             initialDelaySeconds: 60
-            periodSeconds: 15
-            timeoutSeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 30
             failureThreshold: 5
           readinessProbe:
             exec:
