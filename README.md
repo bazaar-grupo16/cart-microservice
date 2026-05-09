@@ -88,6 +88,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
   - `POST /cart/.../items` → `{ "data": CartItem }`
   - Endpoints que devuelven `204 No Content` no retornan body.
 - **Probes** (`/livez`, `/readyz`) no usan envelope `data`.
+- **Autenticación**: Los endpoints de "Carrito Personal" requieren un token JWT en el header `Authorization: Bearer <token>`. El microservicio recibe el ID de usuario validado a través del Ingress.
 
 ### Esquemas (aprox. OpenAPI)
 
@@ -133,7 +134,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 ```json
 {
-  "userId": 1001,
+  "userId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670",
   "items": [/* CartItem */],
   "totalPrice": { "value": "29.97", "updatedAt": "2026-04-15T12:34:56Z" }
 }
@@ -167,17 +168,127 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
     {"status":"unavailable","detail":"database connection failed"}
     ```
 
-### Carrito
+### Carrito Personal (Autenticado)
 
-#### `GET /cart/{user_id}`
+Estos endpoints operan sobre el carrito del usuario autenticado. El ID de usuario se extrae automáticamente del token de sesión a través del Ingress.
 
-- **Path params**:
-  - `user_id` (integer, `>= 1`)
+#### `GET /cart`
+
+- **Descripción**: Obtiene el carrito del usuario autenticado.
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
 - **Respuestas**:
   - `200 application/json` → `CartResponse`
 
     ```json
-    {"data": {"userId": 1001, "items": [], "totalPrice": {"value": "0.00", "updatedAt": "2026-04-15T12:34:56Z"}}}
+    {"data": {"userId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "items": [], "totalPrice": {"value": "0.00", "updatedAt": "2026-04-15T12:34:56Z"}}}
+    ```
+
+  - `401 Unauthorized`
+  - `500 application/problem+json`
+
+#### `DELETE /cart`
+
+- **Descripción**: Vacía el carrito del usuario autenticado (idempotente).
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
+- **Respuestas**:
+  - `204` (sin body)
+  - `401 Unauthorized`
+  - `500 application/problem+json`
+
+#### `POST /cart/items`
+
+- **Descripción**: Agrega $n$ unidades del producto al carrito del usuario autenticado.
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
+  - `Content-Type: application/json`
+- **Request body**:
+
+  ```json
+  {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "quantity": 3}
+  ```
+
+- **Respuestas**:
+  - `201 application/json` → `CartItemResponse`
+
+    ```json
+    {"data": {"productId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "title": "...", "unitPrice": {"value": "9.99", "updatedAt": "2026-04-15T12:34:56Z"}, "quantity": 3, "stock": 42, "status": "active", "addedAt": "2026-04-15T12:34:56Z"}}
+    ```
+
+  - `401 Unauthorized`
+  - `404 application/problem+json` (producto inexistente en Catálogo)
+  - `422 application/problem+json` (stock insuficiente)
+  - `503 application/problem+json` (Catálogo no disponible)
+  - `500 application/problem+json`
+
+#### `DELETE /cart/items/{cart_item_id}`
+
+- **Descripción**: Elimina el ítem del carrito personal por ID de producto.
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
+- **Path params**:
+  - `cart_item_id` (string, UUID) — *corresponde a `productId`*
+- **Respuestas**:
+  - `204` (sin body)
+  - `401 Unauthorized`
+  - `404 application/problem+json` (el producto no está en el carrito)
+
+#### `PUT /cart/increment/{product_id}`
+
+- **Descripción**: Incrementa la cantidad del producto en el carrito personal.
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
+  - `Content-Type: application/json`
+- **Path params**:
+  - `product_id` (string, UUID)
+- **Request body**:
+
+  ```json
+  {"quantity": 1}
+  ```
+
+- **Respuestas**:
+  - `204` (sin body)
+  - `401 Unauthorized`
+  - `404 application/problem+json` (producto no está en el carrito)
+  - `422 application/problem+json` (stock insuficiente)
+  - `500 application/problem+json`
+
+#### `PUT /cart/decrement/{product_id}`
+
+- **Descripción**: Decrementa la cantidad del producto en el carrito personal.
+- **Headers**:
+  - `Authorization: Bearer <JWT>`
+  - `Content-Type: application/json`
+- **Path params**:
+  - `product_id` (string, UUID)
+- **Request body**:
+
+  ```json
+  {"quantity": 1}
+  ```
+
+- **Respuestas**:
+  - `204` (sin body)
+  - `401 Unauthorized`
+  - `404 application/problem+json` (producto no está en el carrito)
+  - `500 application/problem+json`
+
+### Carrito (Retrocompatibilidad / Uso Interno)
+
+> [!WARNING]
+> Estos endpoints requieren especificar el `user_id` en la URL y están destinados a pruebas o servicios internos. En producción, se recomienda usar los endpoints autenticados de la sección anterior.
+
+#### `GET /cart/{user_id}`
+
+- **Path params**:
+  - `user_id` (string, UUID)
+- **Respuestas**:
+  - `200 application/json` → `CartResponse`
+
+    ```json
+    {"data": {"userId": "fcbcd5d2-7842-40c2-9ee4-c6ff6d99d670", "items": [], "totalPrice": {"value": "0.00", "updatedAt": "2026-04-15T12:34:56Z"}}}
     ```
 
   - `400 application/problem+json` (user_id inválido)
@@ -191,7 +302,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 - **Descripción**: vacía el carrito (idempotente: vaciar un carrito vacío también es OK).
 - **Path params**:
-  - `user_id` (integer, `>= 1`)
+  - `user_id` (string, UUID)
 - **Respuestas**:
   - `204` (sin body)
   - `400 application/problem+json`
@@ -203,7 +314,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Headers**:
   - `Content-Type: application/json`
 - **Path params**:
-  - `user_id` (integer, `>= 1`)
+  - `user_id` (string, UUID)
 - **Request body**:
 
   ```json
@@ -229,7 +340,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 
 - **Descripción**: elimina el ítem del carrito por ID de producto del catálogo.
 - **Path params**:
-  - `user_id` (integer, `>= 1`)
+  - `user_id` (string, UUID)
   - `cart_item_id` (string, UUID) — *corresponde a `productId`*
 - **Respuestas**:
   - `204` (sin body)
@@ -242,7 +353,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Headers**:
   - `Content-Type: application/json`
 - **Path params**:
-  - `user_id` (integer, `>= 1`)
+  - `user_id` (string, UUID)
   - `product_id` (string, UUID)
 - **Request body**:
 
@@ -263,7 +374,7 @@ El microservicio sigue una arquitectura por capas para facilitar el mantenimient
 - **Headers**:
   - `Content-Type: application/json`
 - **Path params**:
-  - `user_id` (integer, `>= 1`)
+  - `user_id` (string, UUID)
   - `product_id` (string, UUID)
 - **Request body**:
 
