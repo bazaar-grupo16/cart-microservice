@@ -19,6 +19,15 @@ func SetupRouter(cc *controller.CartController) *gin.Engine {
 	r.GET("/readyz", controller.ReadyzHandler)
 
 	// Cart routes (scope of this microservice)
+	r.GET("/cart", cc.GetOwnCart) // For authenticated users to get their own cart
+	r.DELETE("/cart", cc.ClearOwnCart)
+	r.POST("/cart/items", cc.AddToOwnCart)
+	r.DELETE("/cart/items/:cart_item_id", cc.RemoveFromOwnCart)
+	r.PUT("/cart/increment/:product_id", cc.IncrementOwnItem)
+	r.PUT("/cart/decrement/:product_id", cc.DecrementOwnItem)
+
+	// Not authenticated routes (for now these are for retrocompatibility and testing, but they may be removed in the future) (This routes should be protected by an API Gateway in production, but we keep them here for testing and retrocompatibility)
+
 	r.GET("/cart/:user_id", cc.GetCart)
 	r.DELETE("/cart/:user_id", cc.ClearCart)
 	r.POST("/cart/:user_id/items", cc.AddToCart)
