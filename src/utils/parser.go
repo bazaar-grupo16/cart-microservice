@@ -39,3 +39,44 @@ func ParseUserAndProduct(ctx *gin.Context) (userID string, productID string, ok 
 
 	return strUID, productID, true
 }
+
+func ParseUserIDHeaderAndProductID(ctx *gin.Context) (userID string, productID string, ok bool) {
+	userID = ctx.GetHeader("X-User-ID")
+	if userID == "" {
+		zap.S().Debug("Missing X-User-ID header")
+		ProblemJSON(ctx, http.StatusBadRequest, "Missing User ID", "The X-User-ID header is required", ctx.Request.URL.String())
+		return "", "", false
+	}
+
+	if !IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format in header", "id", userID)
+		ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format in X-User-ID header is invalid", ctx.Request.URL.String())
+		return "", "", false
+	}
+
+	productID = ctx.Param("product_id")
+	if !IsUUID(productID) {
+		zap.S().Debugw("Invalid product ID format", "id", productID)
+		ProblemJSON(ctx, http.StatusBadRequest, "Invalid Product ID", "The provided product identification format is invalid", ctx.Request.URL.String())
+		return "", "", false
+	}
+
+	return userID, productID, true
+}
+
+func GetUserIDFromHeader(ctx *gin.Context) (string, bool) {
+	userID := ctx.GetHeader("X-User-ID")
+	if userID == "" {
+		zap.S().Debug("Missing X-User-ID header")
+		ProblemJSON(ctx, http.StatusBadRequest, "Missing User ID", "The X-User-ID header is required", ctx.Request.URL.String())
+		return "", false
+	}
+
+	if !IsUUID(userID) {
+		zap.S().Debugw("Invalid user ID format in header", "id", userID)
+		ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format in X-User-ID header is invalid", ctx.Request.URL.String())
+		return "", false
+	}
+
+	return userID, true
+}
