@@ -42,6 +42,7 @@ func newCatalogMockServer(t *testing.T) *httptest.Server {
 				"id": "%s",
 				"sellerId": "%s",
 				"title": "Test Product",
+				"category": "Test Category",
 				"price": "9.99",
 				"stock": 42,
 				"status": "active"
@@ -998,6 +999,7 @@ func TestUpdateProductSnapshot(t *testing.T) {
 			"data": {
 				"id": "%s",
 				"title": "Snapshot Product",
+				"category": "Test Category",
 				"price": "%s",
 				"stock": %d,
 				"status": "%s"
@@ -1112,6 +1114,7 @@ func TestStockAwareQuantity(t *testing.T) {
 			"data": {
 				"id": "%s",
 				"title": "Stock Product",
+				"category": "Test Category",
 				"price": "%s",
 				"stock": %d,
 				"status": "%s"

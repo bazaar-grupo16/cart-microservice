@@ -128,6 +128,7 @@ func (s *CartService) AddToCart(userID string, item *models.CartItem) error {
 
 	// Persist snapshots of title and price, plus live stock/status.
 	item.Title = product.Title
+	item.Category = product.Category
 	item.SellerID = product.SellerID
 	item.UnitPrice = product.Price
 	item.Stock = product.Stock

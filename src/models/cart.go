@@ -16,6 +16,7 @@ type CartItem struct {
 	ProductID string `bson:"productId" json:"productId"`
 	SellerID  string `bson:"sellerId"  json:"sellerId"`
 	Title     string `bson:"title"     json:"title"`
+	Category  string `bson:"category"  json:"category"`
 	UnitPrice Price  `bson:"unitPrice" json:"unitPrice"`
 	Quantity  int    `bson:"quantity"  json:"quantity"`
 	Stock     int    `bson:"stock"     json:"stock"`
