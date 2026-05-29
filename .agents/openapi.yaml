@@ -236,13 +236,15 @@ components:
   schemas:
     Product:
       type: object
-      required: [id, sellerId, title, description, price, createdAt, updatedAt]
+      required: [id, sellerId, title, description, price, category, createdAt, updatedAt]
       properties:
         id:
           type: integer
         sellerId:
           type: integer
         title:
+          type: string
+        category:
           type: string
         description:
           type: string
@@ -259,13 +261,15 @@ components:
 
     CartItem:
       type: object
-      required: [id, productId, title, unitPrice, addedAt]
+      required: [id, productId, title, category, unitPrice, addedAt]
       properties:
         id:
           type: integer
         productId:
           type: integer
         title:
+          type: string
+        category:
           type: string
         unitPrice:
           type: number
@@ -297,10 +301,13 @@ components:
         - title
         - description
         - price
+        - category
       properties:
         sellerId:
           type: integer
         title:
+          type: string
+        category:
           type: string
         description:
           type: string
@@ -314,8 +321,11 @@ components:
         - title
         - description
         - price
+        - category
       properties:
         title:
+          type: string
+        category:
           type: string
         description:
           type: string
