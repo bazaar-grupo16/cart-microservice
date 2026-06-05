@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
+	"github.com/bazaar-grupo16/cart-microservice/src/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +27,7 @@ var (
 // CatalogClientI defines the contract for fetching product data from the Catalog service.
 // Using an interface here allows swapping a real HTTP client for a mock in tests.
 type CatalogClientI interface {
-	GetProduct(productID string) (*models.Product, error)
+	GetProduct(ctx context.Context, productID string) (*models.Product, error)
 }
 
 // CatalogClient is the production implementation of CatalogClientI.
@@ -55,7 +57,7 @@ func NewCatalogClient(baseURL string) *CatalogClient {
 // GetProduct fetches a product by ID from the Catalog microservice.
 // Returns ErrProductNotFound when the catalog responds 404.
 // Returns ErrCatalogUnavailable on any other failure (timeout, circuit open, 5xx, etc.).
-func (c *CatalogClient) GetProduct(productID string) (*models.Product, error) {
+func (c *CatalogClient) GetProduct(ctx context.Context, productID string) (*models.Product, error) {
 	// --- Circuit Breaker: check state ---
 	c.mu.Lock()
 	if c.circuitOpen {
@@ -74,7 +76,20 @@ func (c *CatalogClient) GetProduct(productID string) (*models.Product, error) {
 	// --- Execute HTTP request ---
 	productIDPath := url.PathEscape(productID)
 	catalogURL := fmt.Sprintf("%s/products/%s", c.BaseURL, productIDPath)
-	resp, err := c.HTTPClient.Get(catalogURL)
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", catalogURL, nil)
+	if err != nil {
+		c.recordFailure()
+		zap.S().Errorw("Failed to create HTTP request", "url", catalogURL, "error", err)
+		return nil, ErrCatalogUnavailable
+	}
+
+	// Propagate headers
+	for k, v := range telemetry.BuildObservabilityHeadersFromContext(ctx) {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		c.recordFailure()
 		zap.S().Errorw("Catalog HTTP request failed", "url", catalogURL, "error", err)

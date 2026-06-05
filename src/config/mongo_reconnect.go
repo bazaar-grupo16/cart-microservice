@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo"
 	"go.uber.org/zap"
 )
 
@@ -124,7 +125,8 @@ func connectMongoOnce(parent context.Context, cfg mongoCfg) (*mongo.Client, *mon
 	client, err := mongo.Connect(
 		options.Client().
 			ApplyURI(cfg.uri).
-			SetServerSelectionTimeout(mongoPingTimeout),
+			SetServerSelectionTimeout(mongoPingTimeout).
+			SetMonitor(otelmongo.NewMonitor()),
 	)
 	if err != nil {
 		return nil, nil, err

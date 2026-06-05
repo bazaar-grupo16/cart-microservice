@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/models"
@@ -41,7 +42,7 @@ func NewCartService(cartRepo CartRepositoryI, catalogClient CatalogClientI) *Car
 // stock and status of each item with the Catalog service.
 // If the Catalog is unavailable, the cart is returned with the last cached values
 // (no error is propagated — the failure is logged and silently skipped).
-func (s *CartService) GetCartByUserID(userID string) (*models.Cart, error) {
+func (s *CartService) GetCartByUserID(ctx context.Context, userID string) (*models.Cart, error) {
 	cart, err := s.CartRepository.GetCartByUserID(userID)
 	if err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ func (s *CartService) GetCartByUserID(userID string) (*models.Cart, error) {
 	if len(cart.Items) > 0 {
 		var updates []repository.ProductUpdate
 		for _, item := range cart.Items {
-			product, err := s.CatalogClient.GetProduct(item.ProductID)
+			product, err := s.CatalogClient.GetProduct(ctx, item.ProductID)
 			if err != nil {
 				zap.S().Warnw("Catalog unavailable during stock sync; using cached values",
 					"userID", userID, "productID", item.ProductID, "error", err)
@@ -83,7 +84,7 @@ func (s *CartService) GetCartByUserID(userID string) (*models.Cart, error) {
 
 // ClearCart removes all items from the user's cart.
 // Idempotent — clearing an empty or non-existent cart is not an error.
-func (s *CartService) ClearCart(userID string) error {
+func (s *CartService) ClearCart(ctx context.Context, userID string) error {
 	return s.CartRepository.ClearCart(userID)
 }
 
@@ -94,8 +95,8 @@ func (s *CartService) ClearCart(userID string) error {
 // Returns:
 //   - ErrProductNotFound if the catalog returns 404.
 //   - ErrCatalogUnavailable if the catalog is unreachable or the circuit is open.
-func (s *CartService) AddToCart(userID string, item *models.CartItem) error {
-	product, err := s.CatalogClient.GetProduct(item.ProductID)
+func (s *CartService) AddToCart(ctx context.Context, userID string, item *models.CartItem) error {
+	product, err := s.CatalogClient.GetProduct(ctx, item.ProductID)
 	if err != nil {
 		return err
 	}
@@ -140,8 +141,8 @@ func (s *CartService) AddToCart(userID string, item *models.CartItem) error {
 
 // IncrementItem increases the quantity of an existing cart item by qty.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) IncrementItem(userID string, productID string, qty int) error {
-	product, err := s.CatalogClient.GetProduct(productID)
+func (s *CartService) IncrementItem(ctx context.Context, userID string, productID string, qty int) error {
+	product, err := s.CatalogClient.GetProduct(ctx, productID)
 	if err != nil {
 		return err
 	}
@@ -188,8 +189,8 @@ func (s *CartService) IncrementItem(userID string, productID string, qty int) er
 // DecrementItem decreases the quantity of an existing cart item by qty.
 // If the resulting quantity would be <= 0, the item is removed from the cart.
 // Returns ErrCartItemNotFound (from the repository) if the product is not in the cart.
-func (s *CartService) DecrementItem(userID string, productID string, qty int) error {
-	product, err := s.CatalogClient.GetProduct(productID)
+func (s *CartService) DecrementItem(ctx context.Context, userID string, productID string, qty int) error {
+	product, err := s.CatalogClient.GetProduct(ctx, productID)
 	if err != nil {
 		return err
 	}
@@ -213,6 +214,6 @@ func (s *CartService) DecrementItem(userID string, productID string, qty int) er
 // RemoveFromCart removes the product entry from the user's cart.
 // Returns an error (propagated from the repository) if the product is not in the cart
 // or does not belong to the given user.
-func (s *CartService) RemoveFromCart(userID string, productID string) error {
+func (s *CartService) RemoveFromCart(ctx context.Context, userID string, productID string) error {
 	return s.CartRepository.RemoveItem(userID, productID)
 }

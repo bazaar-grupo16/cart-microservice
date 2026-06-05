@@ -16,6 +16,9 @@ spec:
     type: Recreate # There cannot be two MongoDB nodes running at the same time because only one can be attached to the same PVC
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5432"
       labels:
         app: cart-db
   
@@ -28,6 +31,16 @@ spec:
           env:
             - name: MONGO_INITDB_DATABASE
               value: cart_db
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: cart-db
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=dev,k8s.cluster.name=bazaar-dev"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
           args:
             - "--wiredTigerCacheSizeGB=0.25"
             - "--wiredTigerEngineConfigString=eviction=(threads_min=1,threads_max=2)"

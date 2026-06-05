@@ -34,7 +34,7 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.CartService.GetCartByUserID(userID)
+	cart, err := c.CartService.GetCartByUserID(ctx, userID)
 	if err != nil {
 		zap.S().Errorw("Failed to retrieve cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not retrieve the cart at this time", ctx.Request.URL.String())
@@ -54,7 +54,7 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.ClearCart(userID)
+	err := c.CartService.ClearCart(ctx, userID)
 	if err != nil {
 		zap.S().Errorw("Failed to clear cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not clear the cart at this time", ctx.Request.URL.String())
@@ -100,7 +100,7 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		Quantity:  qty,
 	}
 
-	err := c.CartService.AddToCart(userID, &item)
+	err := c.CartService.AddToCart(ctx, userID, &item)
 	switch {
 	case errors.Is(err, service.ErrProductNotFound):
 		zap.S().Debugw("Product not found in catalog", "userID", userID, "productID", req.ProductID)
@@ -142,7 +142,7 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.RemoveFromCart(userID, productID)
+	err := c.CartService.RemoveFromCart(ctx, userID, productID)
 	if err != nil {
 		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "productID", productID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
@@ -168,7 +168,7 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.IncrementItem(userID, productID, req.Quantity)
+	err := c.CartService.IncrementItem(ctx, userID, productID, req.Quantity)
 	switch {
 	case errors.Is(err, repository.ErrCartItemNotFound):
 		zap.S().Debugw("Cart item not found for increment", "userID", userID, "productID", productID)
@@ -203,7 +203,7 @@ func (c *CartController) DecrementItem(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.DecrementItem(userID, productID, req.Quantity)
+	err := c.CartService.DecrementItem(ctx, userID, productID, req.Quantity)
 	switch {
 	case errors.Is(err, repository.ErrCartItemNotFound):
 		zap.S().Debugw("Cart item not found for decrement", "userID", userID, "productID", productID)
@@ -226,7 +226,7 @@ func (c *CartController) GetOwnCart(ctx *gin.Context) {
 		return
 	}
 
-	cart, err := c.CartService.GetCartByUserID(userID)
+	cart, err := c.CartService.GetCartByUserID(ctx, userID)
 	if err != nil {
 		zap.S().Errorw("Failed to retrieve cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not retrieve the cart at this time", ctx.Request.URL.String())
@@ -242,7 +242,7 @@ func (c *CartController) ClearOwnCart(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.ClearCart(userID)
+	err := c.CartService.ClearCart(ctx, userID)
 	if err != nil {
 		zap.S().Errorw("Failed to clear cart", "userID", userID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusInternalServerError, "Internal Server Error", "Could not clear the cart at this time", ctx.Request.URL.String())
@@ -281,7 +281,7 @@ func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 		Quantity:  qty,
 	}
 
-	err := c.CartService.AddToCart(userID, &item)
+	err := c.CartService.AddToCart(ctx, userID, &item)
 	switch {
 	case errors.Is(err, service.ErrProductNotFound):
 		zap.S().Debugw("Product not found in catalog", "userID", userID, "productID", req.ProductID)
@@ -317,7 +317,7 @@ func (c *CartController) RemoveFromOwnCart(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.RemoveFromCart(userID, productID)
+	err := c.CartService.RemoveFromCart(ctx, userID, productID)
 	if err != nil {
 		zap.S().Errorw("Failed to remove item from cart", "userID", userID, "productID", productID, "error", err)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
@@ -341,7 +341,7 @@ func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.IncrementItem(userID, productID, req.Quantity)
+	err := c.CartService.IncrementItem(ctx, userID, productID, req.Quantity)
 	switch {
 	case errors.Is(err, repository.ErrCartItemNotFound):
 		zap.S().Debugw("Cart item not found for increment", "userID", userID, "productID", productID)
@@ -373,7 +373,7 @@ func (c *CartController) DecrementOwnItem(ctx *gin.Context) {
 		return
 	}
 
-	err := c.CartService.DecrementItem(userID, productID, req.Quantity)
+	err := c.CartService.DecrementItem(ctx, userID, productID, req.Quantity)
 	switch {
 	case errors.Is(err, repository.ErrCartItemNotFound):
 		zap.S().Debugw("Cart item not found for decrement", "userID", userID, "productID", productID)

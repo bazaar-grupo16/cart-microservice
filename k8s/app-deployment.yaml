@@ -14,6 +14,9 @@ spec:
       app: cart-service
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
       labels:
         app: cart-service
     spec:
@@ -53,6 +56,18 @@ spec:
                 secretKeyRef:
                   name: cart-mongo-credentials
                   key: ENVIRONMENT
+            - name: OTEL_SERVICE_NAME
+              value: "cart-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=dev,k8s.cluster.name=bazaar-dev"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
+            - name: OTEL_DEPLOYMENT_ENVIRONMENT
+              value: "dev"
           # ── Probes ─────────────────────────────────
           livenessProbe:
             httpGet:

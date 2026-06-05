@@ -1,14 +1,31 @@
 package router
 
 import (
+	"os"
+
 	"github.com/bazaar-grupo16/cart-microservice/src/controller"
 	"github.com/bazaar-grupo16/cart-microservice/src/middleware"
+	"github.com/bazaar-grupo16/cart-microservice/src/telemetry"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.uber.org/zap"
 )
 
 // SetupRouter initializes the Gin router with all cart routes and health probes.
 func SetupRouter(cc *controller.CartController) *gin.Engine {
-	r := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+
+	// Observability middlewares
+	r.Use(
+		otelgin.Middleware(os.Getenv("OTEL_SERVICE_NAME")), // 1. Tracing first
+		telemetry.CorrelationMiddleware(),                  // 2. Correlation ID
+		telemetry.GinAccessLogger(zap.L()),                 // 3. Structured access logger
+		gin.Recovery(),                                     // 4. Panic recovery
+	)
+
+	// Metrics endpoint for prometheus scraping
+	r.GET("/metrics", telemetry.MetricsHandler())
 
 	// Content-Type validation middleware applies to POST/PUT/PATCH requests.
 	r.Use(middleware.ContentTypeMiddleware())

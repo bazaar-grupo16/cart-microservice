@@ -20,6 +20,13 @@ services:
       - MONGO_URI=mongodb://mongo-test:27017
       - MONGO_DB_NAME=cart_test
       - MONGO_COLLECTION=carts
+      - OTEL_SERVICE_NAME=cart
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=test,k8s.cluster.name=bazaar-dev
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - OTEL_TRACES_SAMPLER=always_on
+      - OTEL_DEPLOYMENT_ENVIRONMENT=test
     depends_on:
       mongo-test:
         condition: service_healthy
