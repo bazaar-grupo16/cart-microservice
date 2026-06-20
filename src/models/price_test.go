@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestPriceRoundingBehavior(t *testing.T) {
@@ -97,5 +99,99 @@ func TestIsPriceStale(t *testing.T) {
 	pStale.UpdatedAt = time.Now().Add(-25 * time.Hour)
 	if !pStale.IsPriceStale() {
 		t.Error("Expected 10.00 to be stale")
+	}
+}
+
+func TestPriceNewPriceEmpty(t *testing.T) {
+	p := NewPrice("")
+	if p.Value != "0.00" {
+		t.Errorf("Expected 0.00, got %s", p.Value)
+	}
+}
+
+func TestPriceRatInvalid(t *testing.T) {
+	p := NewPrice("invalid")
+	r := p.Rat()
+	if r.FloatString(2) != "0.00" {
+		t.Errorf("Expected 0.00, got %s", r.FloatString(2))
+	}
+}
+
+func TestPriceIsAtLeastInvalid(t *testing.T) {
+	p := NewPrice("10.00")
+	if p.IsAtLeast("invalid") {
+		t.Error("Expected false for invalid string")
+	}
+}
+
+func TestPriceUnmarshalJSON(t *testing.T) {
+	// 1. Simple format
+	var p1 Price
+	err := json.Unmarshal([]byte(`"10.50"`), &p1)
+	if err != nil {
+		t.Fatalf("expected no err, got %v", err)
+	}
+	if p1.Value != "10.50" {
+		t.Errorf("expected 10.50, got %s", p1.Value)
+	}
+
+	// 2. Struct format
+	var p2 Price
+	err = json.Unmarshal([]byte(`{"value":"15.00","updatedAt":"2023-01-01T00:00:00Z"}`), &p2)
+	if err != nil {
+		t.Fatalf("expected no err, got %v", err)
+	}
+	if p2.Value != "15.00" {
+		t.Errorf("expected 15.00, got %s", p2.Value)
+	}
+
+	// 3. Invalid format
+	var p3 Price
+	err = json.Unmarshal([]byte(`{"value": [1,2]}`), &p3)
+	if err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestPriceBSON(t *testing.T) {
+	p := NewPrice("10.50")
+
+	typ, b, err := p.MarshalBSONValue()
+	if err != nil {
+		t.Fatalf("expected no err, got %v", err)
+	}
+	if typ != bson.TypeEmbeddedDocument {
+		t.Errorf("expected embedded document type")
+	}
+
+	var p2 Price
+	err = p2.UnmarshalBSONValue(typ, b)
+	if err != nil {
+		t.Fatalf("expected no err, got %v", err)
+	}
+	if p2.Value != "10.50" {
+		t.Errorf("expected 10.50, got %s", p2.Value)
+	}
+
+	// Test Unmarshal old string format
+	_, strData, _ := bson.MarshalValue("5.00")
+	var p3 Price
+	err = p3.UnmarshalBSONValue(bson.TypeString, strData)
+	if err != nil {
+		t.Fatalf("expected no err, got %v", err)
+	}
+	if p3.Value != "5.00" {
+		t.Errorf("expected 5.00, got %s", p3.Value)
+	}
+
+	// Test Unmarshal invalid format
+	err = p3.UnmarshalBSONValue(bson.TypeEmbeddedDocument, []byte("invalid"))
+	if err == nil {
+		t.Error("expected error")
+	}
+
+	err = p3.UnmarshalBSONValue(bson.TypeString, []byte("invalid"))
+	if err == nil {
+		t.Error("expected error")
 	}
 }

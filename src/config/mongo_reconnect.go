@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	monitorOnce sync.Once
+	monitorOnce  sync.Once
 	reconnecting atomic.Bool
 )
 

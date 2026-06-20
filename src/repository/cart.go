@@ -155,7 +155,7 @@ func (r *CartRepository) IncrementItem(userID string, productID string, delta in
 	if err != nil {
 		return err
 	}
-	if result.ModifiedCount == 0 {
+	if result.MatchedCount == 0 {
 		return ErrCartItemNotFound
 	}
 
@@ -225,7 +225,7 @@ func (r *CartRepository) DecrementItem(userID string, productID string, delta in
 	if err != nil {
 		return err
 	}
-	if result.ModifiedCount == 0 {
+	if result.MatchedCount == 0 {
 		return ErrCartItemNotFound
 	}
 

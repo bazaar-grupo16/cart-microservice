@@ -76,7 +76,7 @@ func (c *CatalogClient) GetProduct(ctx context.Context, productID string) (*mode
 	// --- Execute HTTP request ---
 	productIDPath := url.PathEscape(productID)
 	catalogURL := fmt.Sprintf("%s/products/%s", c.BaseURL, productIDPath)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", catalogURL, nil)
 	if err != nil {
 		c.recordFailure()

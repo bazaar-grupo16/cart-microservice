@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -12,13 +13,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// CartServiceInterface defines the methods required by CartController.
+type CartServiceInterface interface {
+	GetCartByUserID(ctx context.Context, userID string) (*models.Cart, error)
+	ClearCart(ctx context.Context, userID string) error
+	AddToCart(ctx context.Context, userID string, item *models.CartItem) error
+	RemoveFromCart(ctx context.Context, userID string, productID string) error
+	IncrementItem(ctx context.Context, userID string, productID string, qty int) error
+	DecrementItem(ctx context.Context, userID string, productID string, qty int) error
+}
+
 // CartController handles cart-related HTTP requests.
 type CartController struct {
-	CartService *service.CartService
+	CartService CartServiceInterface
 }
 
 // NewCartController creates a new instance of CartController.
-func NewCartController(cartService *service.CartService) *CartController {
+func NewCartController(cartService CartServiceInterface) *CartController {
 	return &CartController{
 		CartService: cartService,
 	}
