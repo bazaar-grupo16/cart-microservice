@@ -121,6 +121,10 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 		zap.S().Warnw("Catalog service unavailable when adding to cart", "userID", userID, "productID", req.ProductID)
 		utils.ProblemJSON(ctx, http.StatusServiceUnavailable, "Catalog Unavailable",
 			"The catalog service is temporarily unavailable. Please try again later.", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrCannotAddOwnProduct):
+		zap.S().Debugw("Cannot add own product to cart", "userID", userID, "productID", req.ProductID)
+		utils.ProblemJSON(ctx, http.StatusConflict, "Cannot Add Own Product",
+			"You cannot add your own product to the cart", ctx.Request.URL.String())
 	case errors.Is(err, service.ErrInsufficientStock):
 		zap.S().Debugw("Insufficient stock", "userID", userID, "productID", req.ProductID)
 		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",
@@ -185,6 +189,10 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 		zap.S().Debugw("Cart item not found for increment", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
 			"Could not find the requested product in this user's cart", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrCannotAddOwnProduct):
+		zap.S().Debugw("Cannot increment own product", "userID", userID, "productID", productID)
+		utils.ProblemJSON(ctx, http.StatusConflict, "Cannot Add Own Product",
+			"You cannot add your own product to the cart", ctx.Request.URL.String())
 	case errors.Is(err, service.ErrInsufficientStock):
 		zap.S().Debugw("Insufficient stock for increment", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",
@@ -302,6 +310,10 @@ func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 		zap.S().Warnw("Catalog service unavailable when adding to cart", "userID", userID, "productID", req.ProductID)
 		utils.ProblemJSON(ctx, http.StatusServiceUnavailable, "Catalog Unavailable",
 			"The catalog service is temporarily unavailable. Please try again later.", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrCannotAddOwnProduct):
+		zap.S().Debugw("Cannot add own product to cart", "userID", userID, "productID", req.ProductID)
+		utils.ProblemJSON(ctx, http.StatusConflict, "Cannot Add Own Product",
+			"You cannot add your own product to the cart", ctx.Request.URL.String())
 	case errors.Is(err, service.ErrInsufficientStock):
 		zap.S().Debugw("Insufficient stock", "userID", userID, "productID", req.ProductID)
 		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",
@@ -358,6 +370,10 @@ func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 		zap.S().Debugw("Cart item not found for increment", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusNotFound, "Cart Item Not Found",
 			"Could not find the requested product in this user's cart", ctx.Request.URL.String())
+	case errors.Is(err, service.ErrCannotAddOwnProduct):
+		zap.S().Debugw("Cannot increment own product", "userID", userID, "productID", productID)
+		utils.ProblemJSON(ctx, http.StatusConflict, "Cannot Add Own Product",
+			"You cannot add your own product to the cart", ctx.Request.URL.String())
 	case errors.Is(err, service.ErrInsufficientStock):
 		zap.S().Debugw("Insufficient stock for increment", "userID", userID, "productID", productID)
 		utils.ProblemJSON(ctx, http.StatusUnprocessableEntity, "Insufficient Stock",

@@ -10,6 +10,7 @@ import (
 )
 
 var ErrInsufficientStock = errors.New("insufficient stock")
+var ErrCannotAddOwnProduct = errors.New("cannot add own product to cart")
 
 // CartRepositoryI defines the persistence contract for the cart service.
 // Using an interface here makes the service layer testable without a real MongoDB
@@ -101,6 +102,10 @@ func (s *CartService) AddToCart(ctx context.Context, userID string, item *models
 		return err
 	}
 
+	if product.SellerID == userID {
+		return ErrCannotAddOwnProduct
+	}
+
 	qty := item.Quantity
 	if qty < 1 {
 		qty = 1
@@ -145,6 +150,10 @@ func (s *CartService) IncrementItem(ctx context.Context, userID string, productI
 	product, err := s.CatalogClient.GetProduct(ctx, productID)
 	if err != nil {
 		return err
+	}
+
+	if product.SellerID == userID {
+		return ErrCannotAddOwnProduct
 	}
 
 	cart, err := s.CartRepository.GetCartByUserID(userID)

@@ -168,6 +168,12 @@ func TestAddToCart(t *testing.T) {
 			expectErr:      nil,
 		},
 		{
+			name:           "Cannot add own product",
+			itemToAdd:      &models.CartItem{ProductID: "prod1", Quantity: 1},
+			mockCatalogPrd: &models.Product{Stock: 10, Status: "active", SellerID: "user1"},
+			expectErr:      ErrCannotAddOwnProduct,
+		},
+		{
 			name:           "Catalog err",
 			itemToAdd:      &models.CartItem{ProductID: "prod1", Quantity: 1},
 			mockCatalogErr: ErrProductNotFound,
@@ -238,6 +244,11 @@ func TestIncrementItem(t *testing.T) {
 			mockCatalogPrd: &models.Product{Stock: 10},
 			mockRepoCart:   &models.Cart{Items: []models.CartItem{{ProductID: "prod1", Quantity: 1}}},
 			expectErr:      nil,
+		},
+		{
+			name:           "Cannot increment own product",
+			mockCatalogPrd: &models.Product{Stock: 10, SellerID: "user1"},
+			expectErr:      ErrCannotAddOwnProduct,
 		},
 		{
 			name:           "Item not in cart",
