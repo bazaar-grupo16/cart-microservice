@@ -16,12 +16,10 @@ import (
 // It performs only in-process checks (no DB, no external services),
 // so Kubernetes can distinguish a crashed process from a temporarily unavailable one.
 // @Summary Liveness probe
-// @Description Reports that the process is alive.
-// @Tags health
+// @Description Returns HTTP 200 when the process is alive. No external checks.
+// @Tags Health
 // @Produce json
-// @Success 200 {object} map[string]string "status ok"
-// @Failure 400 {object} models.Problem
-// @Failure 500 {object} models.Problem
+// @Success 200 {object} map[string]string
 // @Router /livez [get]
 func LivezHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -32,13 +30,11 @@ func LivezHandler(ctx *gin.Context) {
 // Returns 503 if the database is unreachable so Kubernetes stops routing traffic
 // to this pod until the dependency recovers.
 // @Summary Readiness probe
-// @Description Reports that the service is ready to handle requests.
-// @Tags health
+// @Description Attempts a lightweight database query. Returns HTTP 200 if successful, HTTP 503 otherwise.
+// @Tags Health
 // @Produce json
-// @Success 200 {object} map[string]string "status ok"
-// @Failure 400 {object} models.Problem
-// @Failure 500 {object} models.Problem
-// @Failure 503 {object} map[string]string "status unavailable"
+// @Success 200 {object} map[string]string
+// @Failure 503 {object} map[string]string
 // @Router /readyz [get]
 func ReadyzHandler(ctx *gin.Context) {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

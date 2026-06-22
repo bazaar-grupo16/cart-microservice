@@ -182,3 +182,4 @@ $RECYCLE.BIN/
 *.patch
 node_modules/
 coverage.html
+.agents/

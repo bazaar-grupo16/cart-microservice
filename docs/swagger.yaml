@@ -1,0 +1,579 @@
+basePath: /
+definitions:
+  models.AddCartRequest:
+    properties:
+      productId:
+        type: string
+      quantity:
+        minimum: 1
+        type: integer
+    required:
+    - productId
+    type: object
+  models.Cart:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/models.CartItem'
+        type: array
+      totalPrice:
+        $ref: '#/definitions/models.Price'
+      userId:
+        type: string
+    type: object
+  models.CartItem:
+    properties:
+      addedAt:
+        type: string
+      category:
+        type: string
+      isBlocked:
+        type: boolean
+      productId:
+        type: string
+      quantity:
+        type: integer
+      sellerId:
+        type: string
+      status:
+        type: string
+      stock:
+        type: integer
+      title:
+        type: string
+      unitPrice:
+        $ref: '#/definitions/models.Price'
+    type: object
+  models.CartItemResponse:
+    properties:
+      data:
+        $ref: '#/definitions/models.CartItem'
+    type: object
+  models.CartResponse:
+    properties:
+      data:
+        $ref: '#/definitions/models.Cart'
+    type: object
+  models.Price:
+    properties:
+      updatedAt:
+        type: string
+      value:
+        type: string
+    type: object
+  models.Problem:
+    properties:
+      detail:
+        type: string
+      instance:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  models.QuantityRequest:
+    properties:
+      quantity:
+        minimum: 1
+        type: integer
+    required:
+    - quantity
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for managing shopping carts in the Bazaar e-commerce platform.
+  title: Cart Microservice API
+  version: "1.0"
+paths:
+  /cart:
+    delete:
+      description: Empties the cart for the authenticated user. User ID is extracted
+        from the X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Clear the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+    get:
+      description: Retrieve the cart details for the authenticated user. User ID is
+        extracted from the X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CartResponse'
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Retrieve the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+  /cart/{user_id}:
+    delete:
+      description: Empties the cart for a specific user ID.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid User ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Clear a cart by User ID (Legacy/Internal)
+      tags:
+      - Cart
+    get:
+      description: Retrieve the cart details for a specific user ID. If the catalog
+        service is available, it synchronizes the cart item prices and stock.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CartResponse'
+        "400":
+          description: Invalid User ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Retrieve a cart by User ID (Legacy/Internal)
+      tags:
+      - Cart
+  /cart/{user_id}/{product_id}/decrement:
+    put:
+      consumes:
+      - application/json
+      description: Decrements the quantity of a product in the cart. If the resulting
+        quantity is 0 or less, the item is removed.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Product ID (UUID)
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Quantity to decrement
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuantityRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid parameters or payload
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Decrement item quantity by User ID (Legacy/Internal)
+      tags:
+      - Cart
+  /cart/{user_id}/{product_id}/increment:
+    put:
+      consumes:
+      - application/json
+      description: Increments the quantity of a product in the cart.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Product ID (UUID)
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Quantity to increment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuantityRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid parameters or payload
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "409":
+          description: Cannot add own product to cart
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "422":
+          description: Insufficient stock
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Increment item quantity by User ID (Legacy/Internal)
+      tags:
+      - Cart
+  /cart/{user_id}/items:
+    post:
+      consumes:
+      - application/json
+      description: Adds a product to a user's cart. If the product already exists,
+        increments the quantity.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Product ID and optional quantity
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddCartRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.CartItemResponse'
+        "400":
+          description: Invalid request payload or User ID/Product ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "404":
+          description: Product not found in catalog
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "409":
+          description: Cannot add own product to cart
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "422":
+          description: Insufficient stock
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "503":
+          description: Catalog service unavailable
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Add item to a cart by User ID (Legacy/Internal)
+      tags:
+      - Cart
+  /cart/{user_id}/items/{cart_item_id}:
+    delete:
+      description: Removes a product from a specific user's cart.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: Product ID to remove (UUID)
+        in: path
+        name: cart_item_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid User ID or Product ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Remove item from a cart by User ID (Legacy/Internal)
+      tags:
+      - Cart
+  /cart/decrement/{product_id}:
+    put:
+      consumes:
+      - application/json
+      description: Decrements the quantity of a product in the authenticated user's
+        cart. User ID is extracted from X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Product ID (UUID)
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Quantity to decrement
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuantityRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid parameters or payload
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Decrement item quantity in the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+  /cart/increment/{product_id}:
+    put:
+      consumes:
+      - application/json
+      description: Increments the quantity of a product in the authenticated user's
+        cart. User ID is extracted from X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Product ID (UUID)
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Quantity to increment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuantityRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid parameters or payload
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "409":
+          description: Cannot add own product to cart
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "422":
+          description: Insufficient stock
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Increment item quantity in the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+  /cart/items:
+    post:
+      consumes:
+      - application/json
+      description: Adds a product to the authenticated user's cart. User ID is extracted
+        from X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Product ID and optional quantity
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddCartRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.CartItemResponse'
+        "400":
+          description: Invalid request payload or Product ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "404":
+          description: Product not found in catalog
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "409":
+          description: Cannot add own product to cart
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "422":
+          description: Insufficient stock
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "503":
+          description: Catalog service unavailable
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Add item to the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+  /cart/items/{cart_item_id}:
+    delete:
+      description: Removes a product from the authenticated user's cart. User ID is
+        extracted from X-User-ID header.
+      parameters:
+      - description: Authenticated User ID (UUID)
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Product ID to remove (UUID)
+        in: path
+        name: cart_item_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Invalid Product ID format
+          schema:
+            $ref: '#/definitions/models.Problem'
+        "401":
+          description: Unauthorized (Missing/invalid header)
+        "404":
+          description: Cart item not found
+          schema:
+            $ref: '#/definitions/models.Problem'
+      summary: Remove item from the authenticated user's own cart
+      tags:
+      - Authenticated Cart
+  /livez:
+    get:
+      description: Returns HTTP 200 when the process is alive. No external checks.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness probe
+      tags:
+      - Health
+  /readyz:
+    get:
+      description: Attempts a lightweight database query. Returns HTTP 200 if successful,
+        HTTP 503 otherwise.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Readiness probe
+      tags:
+      - Health
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
