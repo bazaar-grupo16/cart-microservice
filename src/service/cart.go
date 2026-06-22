@@ -11,6 +11,7 @@ import (
 
 var ErrInsufficientStock = errors.New("insufficient stock")
 var ErrCannotAddOwnProduct = errors.New("cannot add own product to cart")
+var ErrProductBlocked = errors.New("product is blocked")
 
 // CartRepositoryI defines the persistence contract for the cart service.
 // Using an interface here makes the service layer testable without a real MongoDB
@@ -64,6 +65,7 @@ func (s *CartService) GetCartByUserID(ctx context.Context, userID string) (*mode
 				ProductID: item.ProductID,
 				Stock:     product.Stock,
 				Status:    product.Status,
+				IsBlocked: product.IsBlocked,
 				UnitPrice: product.Price,
 			})
 		}
@@ -106,6 +108,10 @@ func (s *CartService) AddToCart(ctx context.Context, userID string, item *models
 		return ErrCannotAddOwnProduct
 	}
 
+	if product.IsBlocked {
+		return ErrProductBlocked
+	}
+
 	qty := item.Quantity
 	if qty < 1 {
 		qty = 1
@@ -139,6 +145,7 @@ func (s *CartService) AddToCart(ctx context.Context, userID string, item *models
 	item.UnitPrice = product.Price
 	item.Stock = product.Stock
 	item.Status = product.Status
+	item.IsBlocked = product.IsBlocked
 	item.Quantity = qty
 
 	return s.CartRepository.AddItem(userID, item)
@@ -154,6 +161,10 @@ func (s *CartService) IncrementItem(ctx context.Context, userID string, productI
 
 	if product.SellerID == userID {
 		return ErrCannotAddOwnProduct
+	}
+
+	if product.IsBlocked {
+		return ErrProductBlocked
 	}
 
 	cart, err := s.CartRepository.GetCartByUserID(userID)
@@ -183,6 +194,7 @@ func (s *CartService) IncrementItem(ctx context.Context, userID string, productI
 		ProductID: productID,
 		Stock:     product.Stock,
 		Status:    product.Status,
+		IsBlocked: product.IsBlocked,
 		UnitPrice: product.Price,
 	}
 
@@ -208,6 +220,7 @@ func (s *CartService) DecrementItem(ctx context.Context, userID string, productI
 		ProductID: productID,
 		Stock:     product.Stock,
 		Status:    product.Status,
+		IsBlocked: product.IsBlocked,
 		UnitPrice: product.Price,
 	}
 

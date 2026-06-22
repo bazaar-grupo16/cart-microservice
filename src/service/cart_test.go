@@ -174,6 +174,12 @@ func TestAddToCart(t *testing.T) {
 			expectErr:      ErrCannotAddOwnProduct,
 		},
 		{
+			name:           "Cannot add blocked product",
+			itemToAdd:      &models.CartItem{ProductID: "prod1", Quantity: 1},
+			mockCatalogPrd: &models.Product{Stock: 10, Status: "active", IsBlocked: true},
+			expectErr:      ErrProductBlocked,
+		},
+		{
 			name:           "Catalog err",
 			itemToAdd:      &models.CartItem{ProductID: "prod1", Quantity: 1},
 			mockCatalogErr: ErrProductNotFound,
@@ -249,6 +255,11 @@ func TestIncrementItem(t *testing.T) {
 			name:           "Cannot increment own product",
 			mockCatalogPrd: &models.Product{Stock: 10, SellerID: "user1"},
 			expectErr:      ErrCannotAddOwnProduct,
+		},
+		{
+			name:           "Cannot increment blocked product",
+			mockCatalogPrd: &models.Product{Stock: 10, IsBlocked: true},
+			expectErr:      ErrProductBlocked,
 		},
 		{
 			name:           "Item not in cart",
