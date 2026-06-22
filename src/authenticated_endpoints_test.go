@@ -188,7 +188,7 @@ func TestAddToOwnCart_ProductNotFound(t *testing.T) {
 func TestAddToOwnCart_CatalogUnavailable(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidUnavailable) })
 
-	downSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	downSrv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	downSrv.Close()
 
 	r := setupRouterWithCatalogURL(downSrv.URL)
@@ -344,7 +344,7 @@ func TestIncrementOwnItem_InsufficientStock(t *testing.T) {
 		statusVal = "active"
 	)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{
 			"data": {

@@ -34,7 +34,7 @@ import (
 func newCatalogMockServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{
@@ -55,7 +55,7 @@ func newCatalogMockServer(t *testing.T) *httptest.Server {
 // newCatalogNotFoundServer returns a server that always responds 404.
 func newCatalogNotFoundServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprint(w, `{"type":"about:blank","title":"Not Found","status":404,"detail":"Product not found","instance":"/products/9999"}`)
@@ -491,7 +491,7 @@ func TestAddItemToCart_CatalogUnavailable(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidUnavailable) })
 
 	// Start and immediately close the server — simulates catalog being down.
-	downSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	downSrv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	downSrv.Close()
 
 	r := setupRouterWithCatalogURL(downSrv.URL)
@@ -832,7 +832,7 @@ func TestAddToCart_CatalogDown(t *testing.T) {
 	t.Cleanup(func() { cleanUser(uidAddCatalogDown) })
 
 	// Start and immediately close the server — simulates catalog being down.
-	downSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	downSrv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	downSrv.Close()
 
 	r := setupRouterWithCatalogURL(downSrv.URL)
@@ -993,7 +993,7 @@ func TestUpdateProductSnapshot(t *testing.T) {
 		statusVal = "active"
 	)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{
 			"data": {
@@ -1108,7 +1108,7 @@ func TestStockAwareQuantity(t *testing.T) {
 		statusVal = "active"
 	)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/products/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{
 			"data": {
@@ -1206,9 +1206,6 @@ func TestStockAwareQuantity(t *testing.T) {
 		t.Errorf("expected status sync to 'on_sale', got: %s", wSync.Body.String())
 	}
 }
-
-
-
 
 // ensure time is imported (used implicitly by cleanUser/cleanCollection timeouts).
 var _ = time.Second

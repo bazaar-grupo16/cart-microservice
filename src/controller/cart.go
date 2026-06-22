@@ -37,10 +37,10 @@ func NewCartController(cartService CartServiceInterface) *CartController {
 
 // GetCart handles GET /cart/:user_id.
 func (c *CartController) GetCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for getting cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for getting cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -57,10 +57,10 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 
 // ClearCart handles DELETE /cart/:user_id.
 func (c *CartController) ClearCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -80,10 +80,10 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 // and stored as an immutable snapshot. If the product is already in the cart, its
 // quantity is incremented instead of adding a duplicate entry.
 func (c *CartController) AddToCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -146,10 +146,10 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 // The :product_id path parameter now refers to the catalog product ID, since cart
 // items are identified by their productId (one entry per product per user).
 func (c *CartController) RemoveFromCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}

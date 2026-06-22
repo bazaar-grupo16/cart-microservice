@@ -178,12 +178,12 @@ func mongoBackoff(attempt int) time.Duration {
 	return backoff
 }
 
-func cryptoJitter(max time.Duration) (time.Duration, error) {
-	if max <= 0 {
+func cryptoJitter(maxDuration time.Duration) (time.Duration, error) {
+	if maxDuration <= 0 {
 		return 0, nil
 	}
 
-	limit := big.NewInt(int64(max))
+	limit := big.NewInt(int64(maxDuration))
 	n, err := crand.Int(crand.Reader, limit)
 	if err != nil {
 		return 0, err

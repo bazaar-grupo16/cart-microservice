@@ -46,6 +46,7 @@ func TestCryptoJitter(t *testing.T) {
 }
 
 func TestAttemptMongoReconnect_NoConfig(t *testing.T) {
+	_ = t
 	// Clear the config
 	lastMongoCfg.Store(mongoCfg{})
 

@@ -49,15 +49,15 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	testCollection.Drop(ctx)
-	client.Disconnect(ctx)
+	_ = testCollection.Drop(ctx)
+	_ = client.Disconnect(ctx)
 	os.Exit(code)
 }
 
 func clearCollection() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	testCollection.DeleteMany(ctx, bson.D{})
+	_, _ = testCollection.DeleteMany(ctx, bson.D{})
 }
 
 func getProvider() func() *mongo.Collection {
@@ -82,7 +82,7 @@ func TestGetCartByUserID(t *testing.T) {
 	}
 
 	// 2. Insert dummy cart and retrieve
-	testCollection.InsertOne(context.Background(), bson.D{
+	_, _ = testCollection.InsertOne(context.Background(), bson.D{
 		{Key: "userId", Value: userID},
 		{Key: "items", Value: bson.A{
 			bson.D{{Key: "productId", Value: "prod1"}, {Key: "quantity", Value: 2}},
@@ -333,11 +333,15 @@ func TestRemoveItem(t *testing.T) {
 	err = repo.AddItem(userID, &models.CartItem{
 		ProductID: "prod1", Quantity: 1, UnitPrice: models.NewPrice("10.00"),
 	})
-	if err != nil { t.Fatalf("setup AddItem failed: %v", err) }
+	if err != nil {
+		t.Fatalf("setup AddItem failed: %v", err)
+	}
 	err = repo.AddItem(userID, &models.CartItem{
 		ProductID: "prod2", Quantity: 2, UnitPrice: models.NewPrice("5.00"),
 	})
-	if err != nil { t.Fatalf("setup AddItem failed: %v", err) }
+	if err != nil {
+		t.Fatalf("setup AddItem failed: %v", err)
+	}
 
 	cartBefore, _ := repo.GetCartByUserID(userID)
 	t.Logf("Cart before remove: %+v", cartBefore)
@@ -361,7 +365,7 @@ func TestClearCart(t *testing.T) {
 	repo := NewCartRepository(getProvider())
 	userID := "user-clear"
 
-	repo.AddItem(userID, &models.CartItem{
+	_ = repo.AddItem(userID, &models.CartItem{
 		ProductID: "prod1", Quantity: 1, UnitPrice: models.NewPrice("10.00"),
 	})
 

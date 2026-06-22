@@ -38,7 +38,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to initialize tracer", zap.Error(err))
 	}
-	defer shutdown(ctx)
+	defer func() {
+		_ = shutdown(ctx)
+	}()
 
 	// Connect to MongoDB (reads MONGO_URI from environment).
 	config.ConnectDatabase()

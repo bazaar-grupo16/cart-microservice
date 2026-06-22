@@ -116,15 +116,15 @@ func TestGetCartByUserID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := &MockCartRepository{
-				GetCartByUserIDFn: func(userID string) (*models.Cart, error) {
+				GetCartByUserIDFn: func(_ string) (*models.Cart, error) {
 					return tt.mockRepoCart, tt.mockRepoErr
 				},
-				UpdateProductSnapshotFn: func(userID string, items []models.CartItem, updates []repository.ProductUpdate) error {
+				UpdateProductSnapshotFn: func(_ string, _ []models.CartItem, _ []repository.ProductUpdate) error {
 					return nil
 				},
 			}
 			mockCatalog := &MockCatalogClient{
-				GetProductFn: func(ctx context.Context, productID string) (*models.Product, error) {
+				GetProductFn: func(_ context.Context, _ string) (*models.Product, error) {
 					return &models.Product{Stock: 10, Status: "active"}, tt.mockCatalogErr
 				},
 			}
@@ -141,7 +141,7 @@ func TestGetCartByUserID(t *testing.T) {
 
 func TestClearCart(t *testing.T) {
 	mockRepo := &MockCartRepository{
-		ClearCartFn: func(userID string) error { return nil },
+		ClearCartFn: func(_ string) error { return nil },
 	}
 	svc := NewCartService(mockRepo, nil)
 	err := svc.ClearCart(context.Background(), "123")
@@ -210,13 +210,13 @@ func TestAddToCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := &MockCartRepository{
-				GetCartByUserIDFn: func(userID string) (*models.Cart, error) {
+				GetCartByUserIDFn: func(_ string) (*models.Cart, error) {
 					return tt.mockRepoCart, tt.mockRepoErr
 				},
-				AddItemFn: func(userID string, item *models.CartItem) error { return nil },
+				AddItemFn: func(_ string, _ *models.CartItem) error { return nil },
 			}
 			mockCatalog := &MockCatalogClient{
-				GetProductFn: func(ctx context.Context, productID string) (*models.Product, error) {
+				GetProductFn: func(_ context.Context, _ string) (*models.Product, error) {
 					return tt.mockCatalogPrd, tt.mockCatalogErr
 				},
 			}
@@ -285,15 +285,15 @@ func TestIncrementItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := &MockCartRepository{
-				GetCartByUserIDFn: func(userID string) (*models.Cart, error) {
+				GetCartByUserIDFn: func(_ string) (*models.Cart, error) {
 					return tt.mockRepoCart, tt.mockRepoErr
 				},
-				IncrementItemFn: func(userID string, productID string, delta int, update repository.ProductUpdate) error {
+				IncrementItemFn: func(_ string, _ string, _ int, _ repository.ProductUpdate) error {
 					return tt.incErr
 				},
 			}
 			mockCatalog := &MockCatalogClient{
-				GetProductFn: func(ctx context.Context, productID string) (*models.Product, error) {
+				GetProductFn: func(_ context.Context, _ string) (*models.Product, error) {
 					return tt.mockCatalogPrd, tt.mockCatalogErr
 				},
 			}
@@ -341,12 +341,12 @@ func TestDecrementItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockRepo := &MockCartRepository{
-				DecrementItemFn: func(userID string, productID string, delta int, update repository.ProductUpdate) error {
+				DecrementItemFn: func(_ string, _ string, _ int, _ repository.ProductUpdate) error {
 					return tt.decErr
 				},
 			}
 			mockCatalog := &MockCatalogClient{
-				GetProductFn: func(ctx context.Context, productID string) (*models.Product, error) {
+				GetProductFn: func(_ context.Context, _ string) (*models.Product, error) {
 					return tt.mockCatalogPrd, tt.mockCatalogErr
 				},
 			}
@@ -367,7 +367,7 @@ func TestDecrementItem(t *testing.T) {
 
 func TestRemoveFromCart(t *testing.T) {
 	mockRepo := &MockCartRepository{
-		RemoveItemFn: func(userID string, productID string) error { return nil },
+		RemoveItemFn: func(_ string, _ string) error { return nil },
 	}
 	svc := NewCartService(mockRepo, nil)
 	err := svc.RemoveFromCart(context.Background(), "user1", "prod1")

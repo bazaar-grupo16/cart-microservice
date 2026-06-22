@@ -163,8 +163,8 @@ func (p Price) IsPositive() bool {
 }
 
 // IsAtLeast returns true if the price is greater than or equal to the given minimum string value.
-func (p Price) IsAtLeast(min string) bool {
-	m, ok := new(big.Rat).SetString(min)
+func (p Price) IsAtLeast(minPrice string) bool {
+	m, ok := new(big.Rat).SetString(minPrice)
 	if !ok {
 		return false
 	}

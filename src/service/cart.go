@@ -87,7 +87,7 @@ func (s *CartService) GetCartByUserID(ctx context.Context, userID string) (*mode
 
 // ClearCart removes all items from the user's cart.
 // Idempotent — clearing an empty or non-existent cart is not an error.
-func (s *CartService) ClearCart(ctx context.Context, userID string) error {
+func (s *CartService) ClearCart(_ context.Context, userID string) error {
 	return s.CartRepository.ClearCart(userID)
 }
 
@@ -236,6 +236,6 @@ func (s *CartService) DecrementItem(ctx context.Context, userID string, productI
 // RemoveFromCart removes the product entry from the user's cart.
 // Returns an error (propagated from the repository) if the product is not in the cart
 // or does not belong to the given user.
-func (s *CartService) RemoveFromCart(ctx context.Context, userID string, productID string) error {
+func (s *CartService) RemoveFromCart(_ context.Context, userID string, productID string) error {
 	return s.CartRepository.RemoveItem(userID, productID)
 }
