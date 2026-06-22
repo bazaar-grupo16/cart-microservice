@@ -31,4 +31,27 @@ services:
       mongo-test:
         condition: service_healthy
     # -count=1 disables test result caching so tests always run against the live DB.
-    command: go test ./src/... -v -count=1
+    # -p 1 ensures packages run sequentially to prevent concurrent DB wipes
+    command: go test -p 1 ./src/... -v -count=1
+
+  test-coverage:
+    image: golang:alpine
+    container_name: test_coverage
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - MONGO_URI=mongodb://mongo-test:27017
+      - MONGO_DB_NAME=cart_test
+      - MONGO_COLLECTION=carts
+      - OTEL_SERVICE_NAME=cart
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=test,k8s.cluster.name=bazaar-dev
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - OTEL_TRACES_SAMPLER=always_on
+      - OTEL_DEPLOYMENT_ENVIRONMENT=test
+    depends_on:
+      mongo-test:
+        condition: service_healthy
+    command: sh -c "go test -p 1 ./src/... -coverprofile=coverage.out -covermode=atomic -coverpkg=./src/... -count=1 && go tool cover -func=coverage.out && go tool cover -html=coverage.out -o coverage.html"

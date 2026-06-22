@@ -181,3 +181,4 @@ $RECYCLE.BIN/
 *.orig
 *.patch
 node_modules/
+coverage.html

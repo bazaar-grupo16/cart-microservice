@@ -21,6 +21,7 @@ type CartItem struct {
 	Quantity  int    `bson:"quantity"  json:"quantity"`
 	Stock     int    `bson:"stock"     json:"stock"`
 	Status    string `bson:"status"    json:"status"`
+	IsBlocked bool   `bson:"isBlocked" json:"isBlocked"`
 	AddedAt   string `bson:"addedAt"   json:"addedAt"`
 }
 

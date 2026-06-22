@@ -141,13 +141,13 @@ func (p *Price) UnmarshalBSONValue(t bson.Type, data []byte) error {
 
 	// Support the new struct format
 	var aux struct {
-		Value     json.Number `bson:"value"`
-		UpdatedAt time.Time   `bson:"updatedAt"`
+		Value     string    `bson:"value"`
+		UpdatedAt time.Time `bson:"updatedAt"`
 	}
 	if err := bson.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	p.Value = aux.Value
+	p.Value = json.Number(aux.Value)
 	p.UpdatedAt = aux.UpdatedAt
 	return nil
 }

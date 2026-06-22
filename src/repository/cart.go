@@ -24,6 +24,7 @@ type ProductUpdate struct {
 	ProductID string
 	Stock     int
 	Status    string
+	IsBlocked bool
 	UnitPrice models.Price
 }
 
@@ -101,6 +102,7 @@ func (r *CartRepository) AddItem(userID string, item *models.CartItem) error {
 			{Key: "$set", Value: bson.D{
 				{Key: "items.$.stock", Value: item.Stock},
 				{Key: "items.$.status", Value: item.Status},
+				{Key: "items.$.isBlocked", Value: item.IsBlocked},
 				{Key: "items.$.unitPrice", Value: item.UnitPrice},
 			}},
 		},
@@ -148,6 +150,7 @@ func (r *CartRepository) IncrementItem(userID string, productID string, delta in
 			{Key: "$set", Value: bson.D{
 				{Key: "items.$.stock", Value: update.Stock},
 				{Key: "items.$.status", Value: update.Status},
+				{Key: "items.$.isBlocked", Value: update.IsBlocked},
 				{Key: "items.$.unitPrice", Value: update.UnitPrice},
 			}},
 		},
@@ -155,7 +158,7 @@ func (r *CartRepository) IncrementItem(userID string, productID string, delta in
 	if err != nil {
 		return err
 	}
-	if result.ModifiedCount == 0 {
+	if result.MatchedCount == 0 {
 		return ErrCartItemNotFound
 	}
 
@@ -218,6 +221,7 @@ func (r *CartRepository) DecrementItem(userID string, productID string, delta in
 				{Key: "items.$.quantity", Value: newQuantity},
 				{Key: "items.$.stock", Value: update.Stock},
 				{Key: "items.$.status", Value: update.Status},
+				{Key: "items.$.isBlocked", Value: update.IsBlocked},
 				{Key: "items.$.unitPrice", Value: update.UnitPrice},
 			}},
 		},
@@ -225,7 +229,7 @@ func (r *CartRepository) DecrementItem(userID string, productID string, delta in
 	if err != nil {
 		return err
 	}
-	if result.ModifiedCount == 0 {
+	if result.MatchedCount == 0 {
 		return ErrCartItemNotFound
 	}
 
@@ -266,6 +270,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID string, items []models.Car
 					{Key: "$set", Value: bson.D{
 						{Key: "items.$.stock", Value: u.Stock},
 						{Key: "items.$.status", Value: u.Status},
+						{Key: "items.$.isBlocked", Value: u.IsBlocked},
 						{Key: "items.$.unitPrice", Value: u.UnitPrice},
 					}},
 				},
@@ -284,6 +289,7 @@ func (r *CartRepository) UpdateProductSnapshot(userID string, items []models.Car
 					{Key: "$set", Value: bson.D{
 						{Key: "items.$.stock", Value: u.Stock},
 						{Key: "items.$.status", Value: u.Status},
+						{Key: "items.$.isBlocked", Value: u.IsBlocked},
 					}},
 				},
 			)
