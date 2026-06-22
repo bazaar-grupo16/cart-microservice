@@ -12,7 +12,7 @@ import (
 // Price is a struct that ensures decimal precision for currency values.
 // In MongoDB and JSON it contains the string 'value' and 'updatedAt' timestamp.
 type Price struct {
-	Value     json.Number `bson:"value"     json:"value"`
+	Value     json.Number `bson:"value"     json:"value" swaggertype:"number"`
 	UpdatedAt time.Time   `bson:"updatedAt" json:"updatedAt"`
 }
 

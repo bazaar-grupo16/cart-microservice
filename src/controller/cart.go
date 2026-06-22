@@ -36,6 +36,15 @@ func NewCartController(cartService CartServiceInterface) *CartController {
 }
 
 // GetCart handles GET /cart/:user_id.
+// @Summary Get cart by user ID (Unauthenticated)
+// @Description Retrieves the shopping cart for a given user ID.
+// @Tags cart
+// @Produce json
+// @Param user_id path string true "User ID"
+// @Success 200 {object} models.Cart
+// @Failure 400 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/{user_id} [get]
 func (c *CartController) GetCart(ctx *gin.Context) {
 	strID := ctx.Param("user_id")
 	userID := strID
@@ -56,6 +65,14 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 }
 
 // ClearCart handles DELETE /cart/:user_id.
+// @Summary Clear cart by user ID (Unauthenticated)
+// @Description Clears all items from the shopping cart for a given user ID.
+// @Tags cart
+// @Param user_id path string true "User ID"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/{user_id} [delete]
 func (c *CartController) ClearCart(ctx *gin.Context) {
 	strID := ctx.Param("user_id")
 	userID := strID
@@ -79,6 +96,22 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 // Accepts a productId; the title and unitPrice are fetched from the Catalog service
 // and stored as an immutable snapshot. If the product is already in the cart, its
 // quantity is incremented instead of adding a duplicate entry.
+// @Summary Add item to cart (Unauthenticated)
+// @Description Adds a product to the cart for a given user ID.
+// @Tags cart
+// @Accept json
+// @Produce json
+// @Param user_id path string true "User ID"
+// @Param request body models.AddCartRequest true "Item to add"
+// @Success 201 {object} models.CartItem
+// @Failure 400 {object} models.Problem
+// @Failure 403 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 409 {object} models.Problem
+// @Failure 422 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Failure 503 {object} models.Problem
+// @Router /cart/{user_id}/items [post]
 func (c *CartController) AddToCart(ctx *gin.Context) {
 	strID := ctx.Param("user_id")
 	userID := strID
@@ -142,9 +175,19 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 	}
 }
 
-// RemoveFromCart handles DELETE /cart/:user_id/items/:product_id.
-// The :product_id path parameter now refers to the catalog product ID, since cart
+// RemoveFromCart handles DELETE /cart/:user_id/items/:cart_item_id.
+// The :cart_item_id path parameter now refers to the catalog product ID, since cart
 // items are identified by their productId (one entry per product per user).
+// @Summary Remove item from cart (Unauthenticated)
+// @Description Removes a specific product from the cart for a given user ID.
+// @Tags cart
+// @Param user_id path string true "User ID"
+// @Param cart_item_id path string true "Product ID"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/{user_id}/items/{cart_item_id} [delete]
 func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 	strID := ctx.Param("user_id")
 	userID := strID
@@ -174,6 +217,21 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 
 // IncrementItem handles PUT /cart/:user_id/:product_id/increment.
 // Increments the quantity of the specified product in the user's cart by the given amount.
+// @Summary Increment item quantity (Unauthenticated)
+// @Description Increments the quantity of a specific product in the cart for a given user ID.
+// @Tags cart
+// @Accept json
+// @Param user_id path string true "User ID"
+// @Param product_id path string true "Product ID"
+// @Param request body models.QuantityRequest true "Quantity to increment"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 403 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 409 {object} models.Problem
+// @Failure 422 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/{user_id}/{product_id}/increment [put]
 func (c *CartController) IncrementItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
@@ -217,6 +275,18 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 // DecrementItem handles PUT /cart/:user_id/:product_id/decrement.
 // Decrements the quantity of the specified product in the user's cart by the given amount.
 // If the resulting quantity is <= 0, the item is removed from the cart automatically.
+// @Summary Decrement item quantity (Unauthenticated)
+// @Description Decrements the quantity of a specific product in the cart for a given user ID.
+// @Tags cart
+// @Accept json
+// @Param user_id path string true "User ID"
+// @Param product_id path string true "Product ID"
+// @Param request body models.QuantityRequest true "Quantity to decrement"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/{user_id}/{product_id}/decrement [put]
 func (c *CartController) DecrementItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
@@ -247,6 +317,17 @@ func (c *CartController) DecrementItem(ctx *gin.Context) {
 
 // AUNTENTICATED (OWN CART) VERSIONS OF THE ABOVE METHODS
 // The following methods are the "own cart" versions of the above, which extract the user ID from the X-User-ID header instead of the path parameter.
+// GetOwnCart handles GET /cart.
+// @Summary Get own cart (Authenticated)
+// @Description Retrieves the shopping cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} models.Cart
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart [get]
 func (c *CartController) GetOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -263,6 +344,16 @@ func (c *CartController) GetOwnCart(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": cart})
 }
 
+// ClearOwnCart handles DELETE /cart.
+// @Summary Clear own cart (Authenticated)
+// @Description Clears all items from the shopping cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart [delete]
 func (c *CartController) ClearOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -279,6 +370,24 @@ func (c *CartController) ClearOwnCart(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
+// AddToOwnCart handles POST /cart/items.
+// @Summary Add item to own cart (Authenticated)
+// @Description Adds a product to the cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body models.AddCartRequest true "Item to add"
+// @Success 201 {object} models.CartItem
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 403 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 409 {object} models.Problem
+// @Failure 422 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Failure 503 {object} models.Problem
+// @Router /cart/items [post]
 func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -339,6 +448,18 @@ func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 	}
 }
 
+// RemoveFromOwnCart handles DELETE /cart/items/:cart_item_id.
+// @Summary Remove item from own cart (Authenticated)
+// @Description Removes a specific product from the cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Param cart_item_id path string true "Product ID"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/items/{cart_item_id} [delete]
 func (c *CartController) RemoveFromOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -363,6 +484,23 @@ func (c *CartController) RemoveFromOwnCart(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
+// IncrementOwnItem handles PUT /cart/increment/:product_id.
+// @Summary Increment item quantity in own cart (Authenticated)
+// @Description Increments the quantity of a specific product in the cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Accept json
+// @Param product_id path string true "Product ID"
+// @Param request body models.QuantityRequest true "Quantity to increment"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 403 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 409 {object} models.Problem
+// @Failure 422 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/increment/{product_id} [put]
 func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserIDHeaderAndProductID(ctx)
 	if !ok {
@@ -403,6 +541,20 @@ func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 	}
 }
 
+// DecrementOwnItem handles PUT /cart/decrement/:product_id.
+// @Summary Decrement item quantity in own cart (Authenticated)
+// @Description Decrements the quantity of a specific product in the cart for the authenticated user.
+// @Tags cart
+// @Security BearerAuth
+// @Accept json
+// @Param product_id path string true "Product ID"
+// @Param request body models.QuantityRequest true "Quantity to decrement"
+// @Success 204
+// @Failure 400 {object} models.Problem
+// @Failure 401 {object} models.Problem
+// @Failure 404 {object} models.Problem
+// @Failure 500 {object} models.Problem
+// @Router /cart/decrement/{product_id} [put]
 func (c *CartController) DecrementOwnItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserIDHeaderAndProductID(ctx)
 	if !ok {
