@@ -16,6 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// @title Cart Microservice API
+// @version 1.0
+// @description API for managing shopping carts in the Bazaar e-commerce platform.
+// @host localhost:8080
+// @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 func main() {
 	// Load environment variables from .env file (fallback to system env) first so OTEL vars are available
 	if err := godotenv.Load("../.env"); err != nil {
@@ -38,7 +46,9 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to initialize tracer", zap.Error(err))
 	}
-	defer shutdown(ctx)
+	defer func() {
+		_ = shutdown(ctx)
+	}()
 
 	// Connect to MongoDB (reads MONGO_URI from environment).
 	config.ConnectDatabase()

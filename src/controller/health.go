@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/bazaar-grupo16/cart-microservice/src/config"
+	// Required for swaggo to find models.Problem type
+	_ "github.com/bazaar-grupo16/cart-microservice/src/models"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -13,6 +15,12 @@ import (
 // LivezHandler reports that the process is alive.
 // It performs only in-process checks (no DB, no external services),
 // so Kubernetes can distinguish a crashed process from a temporarily unavailable one.
+// @Summary Liveness probe
+// @Description Returns HTTP 200 when the process is alive. No external checks.
+// @Tags Health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /livez [get]
 func LivezHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -21,6 +29,13 @@ func LivezHandler(ctx *gin.Context) {
 // It verifies connectivity to MongoDB via a lightweight Ping command.
 // Returns 503 if the database is unreachable so Kubernetes stops routing traffic
 // to this pod until the dependency recovers.
+// @Summary Readiness probe
+// @Description Attempts a lightweight database query. Returns HTTP 200 if successful, HTTP 503 otherwise.
+// @Tags Health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 503 {object} map[string]string
+// @Router /readyz [get]
 func ReadyzHandler(ctx *gin.Context) {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

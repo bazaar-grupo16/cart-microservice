@@ -49,9 +49,9 @@ func TestCatalogClient_GetProduct(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.serverResponse)
-				w.Write([]byte(tt.serverBody))
+				_, _ = w.Write([]byte(tt.serverBody))
 			}))
 			defer server.Close()
 
@@ -74,7 +74,7 @@ func TestCatalogClient_GetProduct(t *testing.T) {
 
 func TestCatalogClient_CircuitBreaker(t *testing.T) {
 	// Create a server that always fails (500)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()

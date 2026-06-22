@@ -43,3 +43,14 @@ func NewCart(userID string, items []CartItem) *Cart {
 		TotalPrice: total,
 	}
 }
+
+// CartResponse represents the success envelope containing a Cart.
+type CartResponse struct {
+	Data Cart `json:"data"`
+}
+
+// CartItemResponse represents the success envelope containing a CartItem.
+type CartItemResponse struct {
+	Data CartItem `json:"data"`
+}
+

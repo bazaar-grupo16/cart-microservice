@@ -36,11 +36,20 @@ func NewCartController(cartService CartServiceInterface) *CartController {
 }
 
 // GetCart handles GET /cart/:user_id.
+// @Summary Retrieve a cart by User ID (Legacy/Internal)
+// @Description Retrieve the cart details for a specific user ID. If the catalog service is available, it synchronizes the cart item prices and stock.
+// @Tags Cart
+// @Produce json
+// @Param user_id path string true "User ID (UUID)"
+// @Success 200 {object} models.CartResponse
+// @Failure 400 {object} models.Problem "Invalid User ID format"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/{user_id} [get]
 func (c *CartController) GetCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for getting cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for getting cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -56,11 +65,19 @@ func (c *CartController) GetCart(ctx *gin.Context) {
 }
 
 // ClearCart handles DELETE /cart/:user_id.
+// @Summary Clear a cart by User ID (Legacy/Internal)
+// @Description Empties the cart for a specific user ID.
+// @Tags Cart
+// @Param user_id path string true "User ID (UUID)"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid User ID format"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/{user_id} [delete]
 func (c *CartController) ClearCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for clearing cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -79,11 +96,26 @@ func (c *CartController) ClearCart(ctx *gin.Context) {
 // Accepts a productId; the title and unitPrice are fetched from the Catalog service
 // and stored as an immutable snapshot. If the product is already in the cart, its
 // quantity is incremented instead of adding a duplicate entry.
+// @Summary Add item to a cart by User ID (Legacy/Internal)
+// @Description Adds a product to a user's cart. If the product already exists, increments the quantity.
+// @Tags Cart
+// @Accept json
+// @Produce json
+// @Param user_id path string true "User ID (UUID)"
+// @Param body body models.AddCartRequest true "Product ID and optional quantity"
+// @Success 201 {object} models.CartItemResponse
+// @Failure 400 {object} models.Problem "Invalid request payload or User ID/Product ID format"
+// @Failure 404 {object} models.Problem "Product not found in catalog"
+// @Failure 409 {object} models.Problem "Cannot add own product to cart"
+// @Failure 422 {object} models.Problem "Insufficient stock"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Failure 503 {object} models.Problem "Catalog service unavailable"
+// @Router /cart/{user_id}/items [post]
 func (c *CartController) AddToCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for adding to cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -142,14 +174,23 @@ func (c *CartController) AddToCart(ctx *gin.Context) {
 	}
 }
 
-// RemoveFromCart handles DELETE /cart/:user_id/items/:product_id.
-// The :product_id path parameter now refers to the catalog product ID, since cart
+// RemoveFromCart handles DELETE /cart/:user_id/items/:cart_item_id.
+// The :cart_item_id path parameter now refers to the catalog product ID, since cart
 // items are identified by their productId (one entry per product per user).
+// @Summary Remove item from a cart by User ID (Legacy/Internal)
+// @Description Removes a product from a specific user's cart.
+// @Tags Cart
+// @Param user_id path string true "User ID (UUID)"
+// @Param cart_item_id path string true "Product ID to remove (UUID)"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid User ID or Product ID format"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Router /cart/{user_id}/items/{cart_item_id} [delete]
 func (c *CartController) RemoveFromCart(ctx *gin.Context) {
-	strId := ctx.Param("user_id")
-	userID := strId
+	strID := ctx.Param("user_id")
+	userID := strID
 	if !utils.IsUUID(userID) {
-		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strId)
+		zap.S().Debugw("Invalid user ID format for removing from cart", "id", strID)
 		utils.ProblemJSON(ctx, http.StatusBadRequest, "Invalid User ID", "The provided user identification format is invalid", ctx.Request.URL.String())
 		return
 	}
@@ -174,6 +215,20 @@ func (c *CartController) RemoveFromCart(ctx *gin.Context) {
 
 // IncrementItem handles PUT /cart/:user_id/:product_id/increment.
 // Increments the quantity of the specified product in the user's cart by the given amount.
+// @Summary Increment item quantity by User ID (Legacy/Internal)
+// @Description Increments the quantity of a product in the cart.
+// @Tags Cart
+// @Accept json
+// @Param user_id path string true "User ID (UUID)"
+// @Param product_id path string true "Product ID (UUID)"
+// @Param body body models.QuantityRequest true "Quantity to increment"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid parameters or payload"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Failure 409 {object} models.Problem "Cannot add own product to cart"
+// @Failure 422 {object} models.Problem "Insufficient stock"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/{user_id}/{product_id}/increment [put]
 func (c *CartController) IncrementItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
@@ -217,6 +272,18 @@ func (c *CartController) IncrementItem(ctx *gin.Context) {
 // DecrementItem handles PUT /cart/:user_id/:product_id/decrement.
 // Decrements the quantity of the specified product in the user's cart by the given amount.
 // If the resulting quantity is <= 0, the item is removed from the cart automatically.
+// @Summary Decrement item quantity by User ID (Legacy/Internal)
+// @Description Decrements the quantity of a product in the cart. If the resulting quantity is 0 or less, the item is removed.
+// @Tags Cart
+// @Accept json
+// @Param user_id path string true "User ID (UUID)"
+// @Param product_id path string true "Product ID (UUID)"
+// @Param body body models.QuantityRequest true "Quantity to decrement"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid parameters or payload"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/{user_id}/{product_id}/decrement [put]
 func (c *CartController) DecrementItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserAndProduct(ctx)
 	if !ok {
@@ -247,6 +314,15 @@ func (c *CartController) DecrementItem(ctx *gin.Context) {
 
 // AUNTENTICATED (OWN CART) VERSIONS OF THE ABOVE METHODS
 // The following methods are the "own cart" versions of the above, which extract the user ID from the X-User-ID header instead of the path parameter.
+// @Summary Retrieve the authenticated user's own cart
+// @Description Retrieve the cart details for the authenticated user. User ID is extracted from the X-User-ID header.
+// @Tags Authenticated Cart
+// @Produce json
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Success 200 {object} models.CartResponse
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart [get]
 func (c *CartController) GetOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -263,6 +339,14 @@ func (c *CartController) GetOwnCart(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"data": cart})
 }
 
+// @Summary Clear the authenticated user's own cart
+// @Description Empties the cart for the authenticated user. User ID is extracted from the X-User-ID header.
+// @Tags Authenticated Cart
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Success 204 "No Content"
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart [delete]
 func (c *CartController) ClearOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -279,6 +363,22 @@ func (c *CartController) ClearOwnCart(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
+// @Summary Add item to the authenticated user's own cart
+// @Description Adds a product to the authenticated user's cart. User ID is extracted from X-User-ID header.
+// @Tags Authenticated Cart
+// @Accept json
+// @Produce json
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Param body body models.AddCartRequest true "Product ID and optional quantity"
+// @Success 201 {object} models.CartItemResponse
+// @Failure 400 {object} models.Problem "Invalid request payload or Product ID format"
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 404 {object} models.Problem "Product not found in catalog"
+// @Failure 409 {object} models.Problem "Cannot add own product to cart"
+// @Failure 422 {object} models.Problem "Insufficient stock"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Failure 503 {object} models.Problem "Catalog service unavailable"
+// @Router /cart/items [post]
 func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -339,6 +439,16 @@ func (c *CartController) AddToOwnCart(ctx *gin.Context) {
 	}
 }
 
+// @Summary Remove item from the authenticated user's own cart
+// @Description Removes a product from the authenticated user's cart. User ID is extracted from X-User-ID header.
+// @Tags Authenticated Cart
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Param cart_item_id path string true "Product ID to remove (UUID)"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid Product ID format"
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Router /cart/items/{cart_item_id} [delete]
 func (c *CartController) RemoveFromOwnCart(ctx *gin.Context) {
 	userID, ok := utils.GetUserIDFromHeader(ctx)
 	if !ok {
@@ -363,6 +473,21 @@ func (c *CartController) RemoveFromOwnCart(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
+// @Summary Increment item quantity in the authenticated user's own cart
+// @Description Increments the quantity of a product in the authenticated user's cart. User ID is extracted from X-User-ID header.
+// @Tags Authenticated Cart
+// @Accept json
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Param product_id path string true "Product ID (UUID)"
+// @Param body body models.QuantityRequest true "Quantity to increment"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid parameters or payload"
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Failure 409 {object} models.Problem "Cannot add own product to cart"
+// @Failure 422 {object} models.Problem "Insufficient stock"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/increment/{product_id} [put]
 func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserIDHeaderAndProductID(ctx)
 	if !ok {
@@ -403,6 +528,19 @@ func (c *CartController) IncrementOwnItem(ctx *gin.Context) {
 	}
 }
 
+// @Summary Decrement item quantity in the authenticated user's own cart
+// @Description Decrements the quantity of a product in the authenticated user's cart. User ID is extracted from X-User-ID header.
+// @Tags Authenticated Cart
+// @Accept json
+// @Param X-User-ID header string true "Authenticated User ID (UUID)"
+// @Param product_id path string true "Product ID (UUID)"
+// @Param body body models.QuantityRequest true "Quantity to decrement"
+// @Success 204 "No Content"
+// @Failure 400 {object} models.Problem "Invalid parameters or payload"
+// @Failure 401 "Unauthorized (Missing/invalid header)"
+// @Failure 404 {object} models.Problem "Cart item not found"
+// @Failure 500 {object} models.Problem "Internal Server Error"
+// @Router /cart/decrement/{product_id} [put]
 func (c *CartController) DecrementOwnItem(ctx *gin.Context) {
 	userID, productID, ok := utils.ParseUserIDHeaderAndProductID(ctx)
 	if !ok {

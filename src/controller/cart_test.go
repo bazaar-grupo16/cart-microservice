@@ -121,7 +121,7 @@ func TestGetCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				GetCartByUserIDFn: func(ctx context.Context, userID string) (*models.Cart, error) {
+				GetCartByUserIDFn: func(_ context.Context, _ string) (*models.Cart, error) {
 					return tt.mockReturnCart, tt.mockReturnErr
 				},
 			}
@@ -171,7 +171,7 @@ func TestClearCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				ClearCartFn: func(ctx context.Context, userID string) error {
+				ClearCartFn: func(_ context.Context, _ string) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -262,7 +262,7 @@ func TestAddToCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				AddToCartFn: func(ctx context.Context, userID string, item *models.CartItem) error {
+				AddToCartFn: func(_ context.Context, _ string, _ *models.CartItem) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -327,7 +327,7 @@ func TestRemoveFromCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				RemoveFromCartFn: func(ctx context.Context, userID string, productID string) error {
+				RemoveFromCartFn: func(_ context.Context, _ string, _ string) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -408,7 +408,7 @@ func TestIncrementItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				IncrementItemFn: func(ctx context.Context, userID string, productID string, qty int) error {
+				IncrementItemFn: func(_ context.Context, _ string, _ string, _ int) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -486,7 +486,7 @@ func TestDecrementItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				DecrementItemFn: func(ctx context.Context, userID string, productID string, qty int) error {
+				DecrementItemFn: func(_ context.Context, _ string, _ string, _ int) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -543,7 +543,7 @@ func TestGetOwnCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				GetCartByUserIDFn: func(ctx context.Context, userID string) (*models.Cart, error) {
+				GetCartByUserIDFn: func(_ context.Context, _ string) (*models.Cart, error) {
 					return tt.mockReturnCart, tt.mockReturnErr
 				},
 			}
@@ -594,7 +594,7 @@ func TestClearOwnCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				ClearCartFn: func(ctx context.Context, userID string) error {
+				ClearCartFn: func(_ context.Context, _ string) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -663,7 +663,7 @@ func TestAddToOwnCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				AddToCartFn: func(ctx context.Context, userID string, item *models.CartItem) error {
+				AddToCartFn: func(_ context.Context, _ string, _ *models.CartItem) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -731,7 +731,7 @@ func TestRemoveFromOwnCart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				RemoveFromCartFn: func(ctx context.Context, userID string, productID string) error {
+				RemoveFromCartFn: func(_ context.Context, _ string, _ string) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -799,7 +799,7 @@ func TestIncrementOwnItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				IncrementItemFn: func(ctx context.Context, userID string, productID string, qty int) error {
+				IncrementItemFn: func(_ context.Context, _ string, _ string, _ int) error {
 					return tt.mockReturnErr
 				},
 			}
@@ -872,7 +872,7 @@ func TestDecrementOwnItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSvc := &MockCartService{
-				DecrementItemFn: func(ctx context.Context, userID string, productID string, qty int) error {
+				DecrementItemFn: func(_ context.Context, _ string, _ string, _ int) error {
 					return tt.mockReturnErr
 				},
 			}

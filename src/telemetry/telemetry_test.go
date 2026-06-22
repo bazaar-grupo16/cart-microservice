@@ -30,7 +30,9 @@ func TestTracerInitializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error initializing tracer, got %v", err)
 	}
-	defer shutdown(ctx)
+	defer func() {
+		_ = shutdown(ctx)
+	}()
 
 	// Verify global TracerProvider is set
 	tp := otel.GetTracerProvider()
@@ -163,7 +165,7 @@ func TestPropagatesCorrelationID_ToCatalog(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data":{"id":"prod1","title":"Product 1","price":10.5,"stock":10,"status":"active"}}`))
+		_, _ = w.Write([]byte(`{"data":{"id":"prod1","title":"Product 1","price":10.5,"stock":10,"status":"active"}}`))
 	}))
 	defer mockServer.Close()
 
